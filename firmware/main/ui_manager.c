@@ -29,6 +29,20 @@ static uint32_t s_sleep_timeout_ms = 5 * 60 * 1000;  /* updated by config store 
 
 static ui_state_t s_state = UI_STATE_DISCONNECTED;
 static notification_store_t s_store;
+
+/* Protects all LVGL calls and store mutations that happen from two contexts:
+ *   - ui_task (via ui_manager_handle_event + ui_manager_tick → lv_timer_handler)
+ *   - any future caller of ui_manager_set_sleep_timeout from another task
+ * The lock must be held whenever calling rebuild_ui() or lv_timer_handler()
+ * because LVGL is not thread-safe and both paths touch the same widget tree.
+ *
+ * TODO(future): Consider migrating from _lock_t to LVGL's built-in
+ * lv_lock() / lv_unlock() API (available in LVGL 9.x). lv_lock() integrates
+ * with the flush-ready mechanism and avoids priority-inversion issues that
+ * can arise with a plain spinlock when the display driver signals flush-done
+ * from an ISR while the UI task holds s_lock. See LVGL docs:
+ * https://docs.lvgl.io/9.2/overview/threading.html
+ */
 static _lock_t s_lock;
 
 static scene_t *s_scene = NULL;
@@ -171,6 +185,8 @@ void ui_manager_handle_event(const ble_evt_t *evt)
         ESP_LOGI(TAG, "Add: %s (%s)", evt->id, evt->project);
         notif_store_add(&s_store, evt->id, evt->project, evt->message);
         notification_ui_rebuild(s_notif_ui, &s_store);
+        /* Show new notification in expanded hero view, then auto-collapse */
+        notification_ui_trigger_hero(s_notif_ui);
 
         if (s_state != UI_STATE_NOTIFICATION) {
             transition_to(UI_STATE_NOTIFICATION);

@@ -46,7 +46,10 @@ void app_main(void) {
     // Init config store — must be before display_init for brightness
     config_store_init();
 
-    // Init display (SPI + LVGL)
+    // Init display (SPI + LVGL).
+    // Return value intentionally discarded: display_init() registers the
+    // lv_display_t* as LVGL's default display internally, so callers never
+    // need to hold the pointer — lv_display_get_default() retrieves it later.
     display_init();
 
     // Init BLE (NimBLE GATT server, posts events to queue)

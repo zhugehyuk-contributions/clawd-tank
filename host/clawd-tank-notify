@@ -39,16 +39,16 @@ def start_daemon() -> None:
     """Start the daemon in the background."""
     CLAWD_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Start daemon as a detached subprocess
-    log_file = open(CLAWD_DIR / "daemon.log", "a")
-    subprocess.Popen(
-        [sys.executable, "-m", "clawd_tank_daemon.daemon"],
-        cwd=str(Path(__file__).parent),
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    log_file.close()
+    # Start daemon as a detached subprocess. The log file is opened in a
+    # with block so it is closed promptly even if Popen raises.
+    with open(CLAWD_DIR / "daemon.log", "a") as log_file:
+        subprocess.Popen(
+            [sys.executable, "-m", "clawd_tank_daemon.daemon"],
+            cwd=str(Path(__file__).parent),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
 
     # Wait for socket to appear
     for _ in range(50):  # 5 seconds max
@@ -71,10 +71,14 @@ def send_to_daemon(payload: dict) -> None:
     try:
         sock.settimeout(3.0)
         sock.connect(str(SOCKET_PATH))
-        sock.sendall(json.dumps(msg).encode("utf-8"))
+        # Messages are newline-delimited so the server can use readline()
+        # for a reliable message boundary.
+        sock.sendall(json.dumps(msg).encode("utf-8") + b"\n")
     except (ConnectionRefusedError, FileNotFoundError, socket.timeout) as e:
         print(f"Failed to send to daemon: {e}", file=sys.stderr)
-        sys.exit(1)
+        # Exit 0: notifications are best-effort; a non-zero exit would
+        # surface a noisy error in Claude Code for a non-critical failure.
+        sys.exit(0)
     finally:
         sock.close()
 

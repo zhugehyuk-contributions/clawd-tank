@@ -10,8 +10,9 @@ from clawd_tank_daemon.socket_server import SocketServer
 
 
 async def _send_raw(socket_path: Path, data: bytes) -> None:
+    """Send data to the socket, appending a newline delimiter."""
     reader, writer = await asyncio.open_unix_connection(str(socket_path))
-    writer.write(data)
+    writer.write(data + b"\n")
     await writer.drain()
     writer.close()
     await writer.wait_closed()

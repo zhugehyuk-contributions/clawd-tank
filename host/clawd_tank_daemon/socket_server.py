@@ -35,13 +35,20 @@ class SocketServer:
 
     async def _handle_client(self, reader: asyncio.StreamReader,
                               writer: asyncio.StreamWriter) -> None:
+        # Messages are newline-delimited JSON. readline() gives a clean
+        # message boundary regardless of TCP/socket buffering.
         try:
-            data = await asyncio.wait_for(reader.read(4096), timeout=5.0)
-            if data:
-                msg = json.loads(data.decode("utf-8"))
-                await self._on_message(msg)
-        except Exception as e:
-            logger.error("Error handling socket message: %s", e)
+            line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+            if line:
+                try:
+                    msg = json.loads(line.decode("utf-8"))
+                    await self._on_message(msg)
+                except json.JSONDecodeError:
+                    logger.error("Received malformed JSON: %r", line[:200])
+        except TimeoutError:
+            logger.warning("Timed out waiting for message from client")
+        except Exception:
+            logger.exception("Unexpected error handling socket message")
         finally:
             writer.close()
             await writer.wait_closed()

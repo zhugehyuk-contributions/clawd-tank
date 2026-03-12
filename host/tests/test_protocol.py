@@ -137,6 +137,22 @@ def test_cwd_trailing_slash_gives_project_name():
     )
 
 
+def test_cwd_empty_string_gives_unknown_project():
+    """cwd='' (explicit empty string) must fall back to 'unknown'."""
+    hook = {
+        "hook_event_name": "Notification",
+        "notification_type": "idle_prompt",
+        "session_id": "s1",
+        "cwd": "",
+        "message": "waiting",
+    }
+    msg = hook_payload_to_daemon_message(hook)
+    assert msg is not None
+    assert msg["project"] == "unknown", (
+        f"Expected 'unknown' for empty cwd, got '{msg['project']}'"
+    )
+
+
 def test_missing_message_field_uses_default():
     """When message is absent the default 'Waiting for input' must be used."""
     hook = {
