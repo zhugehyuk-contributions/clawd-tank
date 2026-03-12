@@ -45,7 +45,11 @@ void app_main(void) {
     ble_service_init(s_evt_queue);
 
     // Start UI task
-    xTaskCreate(ui_task, "ui_task", 8192, NULL, 5, NULL);
+    BaseType_t ret = xTaskCreate(ui_task, "ui_task", 8192, NULL, 5, NULL);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create ui_task");
+        abort();
+    }
 
     ESP_LOGI(TAG, "Clawd Tank running");
 }
