@@ -3,6 +3,7 @@
 #include "scene.h"
 #include "notification_ui.h"
 #include "notification.h"
+#include "config_store.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <time.h>
@@ -22,7 +23,7 @@ typedef enum {
 #define SCENE_NOTIF_WIDTH  107
 #define SCENE_ANIM_MS      400
 
-#define SLEEP_TIMEOUT_MS   (5 * 60 * 1000)  /* 5 minutes */
+static uint32_t s_sleep_timeout_ms = 5 * 60 * 1000;  /* updated by config store */
 
 /* ---------- Module state ---------- */
 
@@ -115,6 +116,7 @@ static void transition_to(ui_state_t new_state)
 void ui_manager_init(void)
 {
     _lock_init(&s_lock);
+    s_sleep_timeout_ms = config_store_get_sleep_timeout_ms();
     notif_store_init(&s_store);
 
     lv_obj_t *screen = lv_screen_active();
@@ -217,7 +219,7 @@ void ui_manager_tick(void)
     /* Sleep timeout: 5 minutes of idle while connected */
     if (s_state == UI_STATE_FULL_IDLE && s_connected && !s_sleeping) {
         uint32_t elapsed = lv_tick_get() - s_last_activity_tick;
-        if (elapsed >= SLEEP_TIMEOUT_MS) {
+        if (s_sleep_timeout_ms > 0 && elapsed >= s_sleep_timeout_ms) {
             scene_set_clawd_anim(s_scene, CLAWD_ANIM_SLEEPING);
             s_sleeping = true;
             ESP_LOGI(TAG, "Clawd falling asleep (5m idle)");
@@ -241,4 +243,19 @@ void ui_manager_tick(void)
     lv_timer_handler();
 
     _lock_release(&s_lock);
+}
+
+void ui_manager_set_sleep_timeout(uint32_t ms)
+{
+    _lock_acquire(&s_lock);
+    s_sleep_timeout_ms = ms;
+    s_last_activity_tick = lv_tick_get();  /* reset idle timer */
+    if (s_sleeping) {
+        s_sleeping = false;
+        if (s_state == UI_STATE_FULL_IDLE) {
+            scene_set_clawd_anim(s_scene, CLAWD_ANIM_IDLE);
+        }
+    }
+    _lock_release(&s_lock);
+    ESP_LOGI(TAG, "Sleep timeout set to %lu ms", (unsigned long)ms);
 }
