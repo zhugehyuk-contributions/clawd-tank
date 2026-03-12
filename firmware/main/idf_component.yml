@@ -1,0 +1,5 @@
+# firmware/main/idf_component.yml
+dependencies:
+  lvgl/lvgl: "^9.2"
+  espressif/esp_lcd_st7789: "^1.4"
+  idf: ">=5.3"
