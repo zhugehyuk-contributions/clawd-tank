@@ -13,14 +13,16 @@ done
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 source "$project_root/tools/direnv_src.sh"
 
+envrc_path="$project_root/firmware/.envrc"
+
 export IDF_TOOLS_PATH="$project_root/.espressif"
-echo "export IDF_TOOLS_PATH=$IDF_TOOLS_PATH" >> "$project_root/.envrc"
+echo "export IDF_TOOLS_PATH=$IDF_TOOLS_PATH" >> "$envrc_path"
 
 echo -e "\n\nCalling esp-idf/install.sh...\n"
 "$project_root/bsp/esp-idf/install.sh" esp32c6
 
 echo -e "\n\nSourcing esp-idf/export.sh...\n"
-direnvsrc "$project_root/bsp/esp-idf/export.sh" "$project_root/.envrc"
+direnvsrc "$project_root/bsp/esp-idf/export.sh" "$envrc_path"
 
 # Check for idf_tools.py
 if ! command -v idf_tools.py &>/dev/null; then
