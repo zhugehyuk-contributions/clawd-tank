@@ -24,6 +24,7 @@ add_executable(clawd-sim
     sim_display.c
     sim_screenshot.c
     sim_events.c
+    cjson/cJSON.c
     # Shared firmware sources (compiled unmodified)
     ${FIRMWARE_DIR}/scene.c
     ${FIRMWARE_DIR}/notification_ui.c
@@ -41,6 +42,7 @@ target_include_directories(clawd-sim PRIVATE
     ${CMAKE_SOURCE_DIR}          # lv_conf.h lives here
     ${FIRMWARE_DIR}              # firmware headers (scene.h, notification.h, etc.)
     ${FIRMWARE_DIR}/assets       # sprite asset headers
+    ${CMAKE_SOURCE_DIR}/cjson    # cJSON
 )
 
 target_link_libraries(clawd-sim PRIVATE

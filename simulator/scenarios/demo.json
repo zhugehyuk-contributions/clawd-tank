@@ -1,0 +1,9 @@
+[
+    {"time_ms": 0,    "event": "connect"},
+    {"time_ms": 500,  "event": "notify", "project": "GitHub", "message": "PR #42: Fix auth flow merged"},
+    {"time_ms": 1500, "event": "notify", "project": "Slack",  "message": "Deploy to staging complete"},
+    {"time_ms": 3000, "event": "notify", "project": "Jira",   "message": "PROJ-123 moved to Done"},
+    {"time_ms": 5000, "event": "dismiss", "index": 0},
+    {"time_ms": 7000, "event": "clear"},
+    {"time_ms": 8000, "event": "disconnect"}
+]

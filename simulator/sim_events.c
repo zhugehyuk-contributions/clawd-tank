@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include "cJSON.h"
 
 #define MAX_EVENTS 64
 #define MAX_NOTIF_IDS 16
@@ -145,9 +146,87 @@ void sim_events_init_inline(const char *events_str)
 
 void sim_events_init_scenario(const char *path)
 {
-    /* TODO: Task 8 — JSON scenario parsing with cJSON */
-    (void)path;
-    fprintf(stderr, "Scenario files not yet implemented\n");
+    if (!path) return;
+
+    /* Read file */
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Cannot open scenario file: %s\n", path);
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *json = malloc(sz + 1);
+    fread(json, 1, sz, f);
+    json[sz] = '\0';
+    fclose(f);
+
+    /* Parse JSON array */
+    cJSON *root = cJSON_Parse(json);
+    free(json);
+    if (!root || !cJSON_IsArray(root)) {
+        fprintf(stderr, "Invalid scenario JSON\n");
+        if (root) cJSON_Delete(root);
+        return;
+    }
+
+    cJSON *item;
+    cJSON_ArrayForEach(item, root) {
+        uint32_t time_ms = 0;
+        cJSON *t = cJSON_GetObjectItem(item, "time_ms");
+        if (t && cJSON_IsNumber(t)) time_ms = (uint32_t)t->valuedouble;
+
+        cJSON *ev = cJSON_GetObjectItem(item, "event");
+        if (!ev || !cJSON_IsString(ev)) continue;
+
+        const char *event_name = ev->valuestring;
+
+        if (strcmp(event_name, "connect") == 0) {
+            ble_evt_t evt = { .type = BLE_EVT_CONNECTED };
+            add_event(time_ms, &evt, "connect");
+        }
+        else if (strcmp(event_name, "disconnect") == 0) {
+            ble_evt_t evt = { .type = BLE_EVT_DISCONNECTED };
+            add_event(time_ms, &evt, "disconnect");
+        }
+        else if (strcmp(event_name, "clear") == 0) {
+            ble_evt_t evt = { .type = BLE_EVT_NOTIF_CLEAR };
+            add_event(time_ms, &evt, "clear");
+        }
+        else if (strcmp(event_name, "notify") == 0) {
+            ble_evt_t evt = { .type = BLE_EVT_NOTIF_ADD };
+            snprintf(evt.id, sizeof(evt.id), "scn_%d", s_next_id);
+            if (s_notif_id_count < MAX_NOTIF_IDS) {
+                strncpy(s_notif_ids[s_notif_id_count], evt.id, NOTIF_MAX_ID_LEN - 1);
+                s_notif_id_count++;
+            }
+            s_next_id++;
+
+            cJSON *proj = cJSON_GetObjectItem(item, "project");
+            cJSON *msg  = cJSON_GetObjectItem(item, "message");
+            if (proj && cJSON_IsString(proj))
+                snprintf(evt.project, sizeof(evt.project), "%s", proj->valuestring);
+            if (msg && cJSON_IsString(msg))
+                snprintf(evt.message, sizeof(evt.message), "%s", msg->valuestring);
+
+            add_event(time_ms, &evt, "notify");
+        }
+        else if (strcmp(event_name, "dismiss") == 0) {
+            ble_evt_t evt = { .type = BLE_EVT_NOTIF_DISMISS };
+            cJSON *idx = cJSON_GetObjectItem(item, "index");
+            if (idx && cJSON_IsNumber(idx)) {
+                int index = (int)idx->valuedouble;
+                if (index >= 0 && index < s_notif_id_count) {
+                    strncpy(evt.id, s_notif_ids[index], sizeof(evt.id) - 1);
+                }
+            }
+            add_event(time_ms, &evt, "dismiss");
+        }
+    }
+
+    cJSON_Delete(root);
+    printf("[sim] Loaded %d events from %s\n", s_event_count, path);
 }
 
 bool sim_events_process(uint32_t current_time_ms)
