@@ -4,30 +4,32 @@
 
 Firmware builds, flashes, and runs on the Waveshare ESP32-C6-LCD-1.47 board.
 BLE advertising works, notifications can be sent and dismissed via BLE GATT writes.
-All 35 tests pass (11 C + 24 Python). The UI is placeholder text — no sprites or animations yet.
+All 35 tests pass (11 C + 24 Python). Clawd sprite animations and notification card UI are implemented.
 
 ---
 
 ## UI/UX Design (Major)
 
-The display currently shows plain text labels. The full UI/UX needs to be designed and implemented.
-
-- [ ] **Clawd sprite sheet** — 8-bit pixel art crab in RGB565 bitmaps stored in flash
+- [x] **Clawd sprite sheet** — 8-bit pixel art crab in RGB565 bitmaps stored in flash
   - Idle animation (breathing/blinking)
   - Alert state (new notification — bouncing, waving claws)
   - Happy state (all notifications cleared)
   - Sleeping/disconnected state
 - [ ] **Notification entry animation** — Clawd reacting + notification sliding in from the right
-- [ ] **List view layout** — compact layout for multiple notifications in the right 2/3 of the screen
+  - Scene-width slide animation done (400ms ease-out). Notification panel fade still stubbed (`/* TODO: fade animation */` in `notification_ui.c`).
+- [x] **List view layout** — compact layout for multiple notifications in the right 2/3 of the screen
 - [ ] **Transition animation** — full-screen new notification → compact list view
-- [ ] **Typography and colors** — font choice and color palette for the 320x172 screen
-- [ ] **Idle/disconnected screen** — what shows when no notifications are active
+  - Scene width transition done via `lv_anim`. Blocked on notification panel fade (same as entry animation above).
+- [x] **Typography and colors** — font choice and color palette for the 320x172 screen
+- [x] **Idle/disconnected screen** — what shows when no notifications are active
 - [ ] **Text truncation and scrolling** — handle long project names and messages, scrolling for 5+ notifications
-- [ ] **Notification ordering** — render entries by insertion `seq` order instead of slot index (currently slot-index order, which can jump around after dismiss/refill)
+  - Truncation and clipping done (`snprintf` + `LV_LABEL_LONG_CLIP`). Marquee/scroll for overflow text not implemented.
+- [x] **Notification ordering** — render entries by insertion `seq` order instead of slot index
 
 ## Hook Integration (Setup)
 
 - [ ] **Install Claude Code hooks** — run `host/install-hooks.sh` and merge the output into `~/.claude/settings.json` to wire up `Notification`, `UserPromptSubmit`, and `SessionEnd` hooks
+  - Script exists but only prints JSON snippet — does not auto-install into settings.
 - [ ] **Test full hook→daemon→BLE→display pipeline** — verify notifications appear when Claude Code goes idle and dismiss when user responds
 
 ## Firmware Hardening (Medium Priority)
@@ -45,7 +47,7 @@ Unchecked return values that can cause silent failures on hardware:
 ## Python Host Hardening (Medium Priority)
 
 - [ ] **`_ble_sender` ValueError crash** (`daemon.py:76`) — `daemon_message_to_ble_payload` raises `ValueError` on unknown event, killing the sender loop permanently. Add `try/except ValueError` with `logger.error` and `continue`
-- [ ] **Failed BLE dismiss drops silently** (`daemon.py:79`) — dismiss removes from `_active_notifications` before BLE write. On write failure, `_replay_active` won't re-send the dismiss, so the ESP32 keeps showing it. Mitigation: retry the failed `msg` before replaying
+- [x] **Failed BLE dismiss drops silently** (`daemon.py:79`) — now triggers reconnect + `_replay_active` on write failure instead of silently dropping
 - [ ] **Socket length framing** (`socket_server.py:39`) — `reader.read(4096)` has no message boundary guarantee. Document the 4096-byte limit or switch to newline-framed messages
 - [ ] **`sys.exit(1)` in hook** (`clawd-notify:77`) — non-zero exit may surface errors in Claude Code. Consider `sys.exit(0)` since notifications are best-effort
 - [ ] **Log file context manager** (`clawd-notify:43`) — `open()` not in `with` block; `Popen` failure leaks the handle
@@ -57,6 +59,7 @@ Unchecked return values that can cause silent failures on hardware:
 - [ ] **Test `_replay_active`** — verify it sends active notifications, handles concurrent mutation
 - [ ] **Test BLE write failure → reconnect → replay path**
 - [ ] **Test unknown event in `_handle_message`** — currently falls through to queue, eventually crashes `_ble_sender`
+  - Protocol-layer test exists (`test_unknown_hook_event_returns_none`). Daemon-level `_handle_message` test still missing.
 - [ ] **Test `cwd=""`** (empty string explicitly) — verify `Path("").name` triggers the `"unknown"` fallback
 
 ## Code Quality (Low Priority)

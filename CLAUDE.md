@@ -106,3 +106,7 @@ Compiles the **same firmware source files** unmodified. ESP-IDF APIs are replace
 - **Notification limit**: 8 simultaneous (ring buffer, oldest dropped on overflow).
 - **LVGL version**: 9.5.0 (not 8.x — API differs significantly).
 - **Sprite format**: RGB565 arrays with transparency key color `0x18C5`.
+
+## TODO Tracking
+
+Always check `TODO.md` at the start of a session to understand current project status. After completing any work, update `TODO.md` to reflect what was done — check off finished items, add progress notes to partial items, and add new items as they are discovered.
