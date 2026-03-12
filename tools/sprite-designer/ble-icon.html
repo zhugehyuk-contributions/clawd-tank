@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BLE Icon Sprite</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #eee; font-family: monospace; padding: 24px; }
+h1 { font-size: 18px; margin-bottom: 4px; }
+.subtitle { font-size: 11px; color: #666; margin-bottom: 20px; }
+h2 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+
+.preview-section { display: flex; align-items: flex-start; gap: 24px; margin-bottom: 24px; }
+.preview-box { text-align: center; }
+.preview-box canvas { image-rendering: pixelated; border: 1px solid #444; }
+.preview-label { font-size: 11px; color: #888; margin-top: 6px; }
+
+.controls { display: flex; gap: 8px; align-items: center; }
+.btn {
+  padding: 6px 14px; background: #2a2a4e; color: #eee; border: 1px solid #444;
+  border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 12px;
+}
+.btn:hover { background: #3a3a5e; }
+.btn.primary { background: #ff6b2b; border-color: #ff6b2b; color: #fff; }
+.btn.primary:hover { background: #ff8844; }
+</style>
+</head>
+<body>
+
+<h1>BLE Bluetooth Icon</h1>
+<p class="subtitle">16&times;16 pixel Bluetooth rune symbol in muted blue (#4466aa)</p>
+
+<h2>Preview</h2>
+<div class="preview-section">
+  <div class="preview-box">
+    <canvas id="icon-12x" width="192" height="192"></canvas>
+    <div class="preview-label">12x (192&times;192)</div>
+  </div>
+  <div class="preview-box">
+    <canvas id="icon-6x" width="96" height="96"></canvas>
+    <div class="preview-label">6x (96&times;96)</div>
+  </div>
+  <div class="preview-box">
+    <canvas id="icon-1x" width="16" height="16"></canvas>
+    <div class="preview-label">1x (16&times;16)</div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="btn primary" onclick="exportPNG()">Export PNG</button>
+</div>
+
+<script>
+const W = 16, H = 16;
+const BG = '#1a1a2e';
+const BLE_COLOR = '#4466aa';
+
+const srcCanvas = document.createElement('canvas');
+srcCanvas.width = W;
+srcCanvas.height = H;
+const ctx = srcCanvas.getContext('2d');
+
+// Fill background
+ctx.fillStyle = BG;
+ctx.fillRect(0, 0, W, H);
+
+// Bluetooth B-rune symbol (ᛒ shape)
+// Classic Bluetooth logo: angular lines forming a bind-rune of H and B
+// In a 16x16 grid, centered:
+//
+//       #
+//       ##
+//    #  # #
+//     # #
+//      #
+//     # #
+//    #  # #
+//       ##
+//       #
+//
+ctx.fillStyle = BLE_COLOR;
+
+// Vertical center line (column 8, rows 3-12)
+for (let y = 3; y <= 12; y++) ctx.fillRect(8, y, 1, 1);
+
+// Top-right arrow: (9,4), (10,5), (9,6)
+ctx.fillRect(9, 4, 1, 1);
+ctx.fillRect(10, 5, 1, 1);
+ctx.fillRect(9, 6, 1, 1);
+
+// Bottom-right arrow: (9,9), (10,10), (9,11)
+ctx.fillRect(9, 9, 1, 1);
+ctx.fillRect(10, 10, 1, 1);
+ctx.fillRect(9, 11, 1, 1);
+
+// Top-left cross line: (5,9), (6,8), (7,7) -> meets center at (8,6)
+ctx.fillRect(5, 9, 1, 1);
+ctx.fillRect(6, 8, 1, 1);
+ctx.fillRect(7, 7, 1, 1);
+
+// Bottom-left cross line: (5,6), (6,7), (7,8) -> these cross over
+// Actually for Bluetooth: the left lines go from lower-left to upper-right center
+// and from upper-left to lower-right center
+
+// Upper-left to center-right: (5,6), (6,7), (7,8)
+ctx.fillRect(5, 6, 1, 1);
+ctx.fillRect(6, 7, 1, 1);
+
+// Lower-left to center-right: already drawn above
+
+// Top peak
+ctx.fillRect(9, 3, 1, 1);
+
+// Bottom peak
+ctx.fillRect(9, 12, 1, 1);
+
+// Render to all preview sizes
+function renderPreviews() {
+  const c1 = document.getElementById('icon-1x').getContext('2d');
+  c1.drawImage(srcCanvas, 0, 0);
+
+  const c6 = document.getElementById('icon-6x').getContext('2d');
+  c6.imageSmoothingEnabled = false;
+  c6.drawImage(srcCanvas, 0, 0, 96, 96);
+
+  const c12 = document.getElementById('icon-12x').getContext('2d');
+  c12.imageSmoothingEnabled = false;
+  c12.drawImage(srcCanvas, 0, 0, 192, 192);
+}
+
+function exportPNG() {
+  srcCanvas.toBlob((blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ble_icon_00.png';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
+renderPreviews();
+</script>
+</body>
+</html>
