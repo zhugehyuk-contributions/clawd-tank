@@ -10,7 +10,7 @@ async def test_handle_add_tracks_notification():
     msg = {"event": "add", "session_id": "s1", "project": "proj", "message": "hi"}
     await daemon._handle_message(msg)
     assert "s1" in daemon._active_notifications
-    assert daemon._pending_queue.qsize() == 1
+    assert daemon._transport_queues["ble"].qsize() == 1
 
 
 @pytest.mark.asyncio
@@ -21,14 +21,14 @@ async def test_handle_dismiss_removes_notification():
     )
     await daemon._handle_message({"event": "dismiss", "session_id": "s1"})
     assert "s1" not in daemon._active_notifications
-    assert daemon._pending_queue.qsize() == 2
+    assert daemon._transport_queues["ble"].qsize() == 2
 
 
 @pytest.mark.asyncio
 async def test_dismiss_unknown_is_safe():
     daemon = ClawdDaemon()
     await daemon._handle_message({"event": "dismiss", "session_id": "nope"})
-    assert daemon._pending_queue.qsize() == 1
+    assert daemon._transport_queues["ble"].qsize() == 1
 
 
 # --- Edge cases ---
@@ -46,7 +46,7 @@ async def test_duplicate_add_updates_not_duplicates():
     assert len(daemon._active_notifications) == 1
     assert daemon._active_notifications["s1"]["message"] == "updated"
     # Both adds go to the queue for BLE delivery
-    assert daemon._pending_queue.qsize() == 2
+    assert daemon._transport_queues["ble"].qsize() == 2
 
 
 @pytest.mark.asyncio
@@ -81,7 +81,7 @@ async def test_multiple_sessions_independent():
 
 @pytest.mark.asyncio
 async def test_unknown_event_does_not_crash_sender():
-    """An unknown event in the queue must be logged and skipped, not crash _ble_sender."""
+    """An unknown event in the queue must be logged and skipped, not crash _transport_sender."""
     daemon = ClawdDaemon()
     await daemon._handle_message({"event": "bogus", "session_id": "x"})
     await daemon._handle_message({"event": "dismiss", "session_id": "x"})
@@ -90,21 +90,23 @@ async def test_unknown_event_does_not_crash_sender():
     with pytest.raises(ValueError):
         daemon_message_to_ble_payload({"event": "bogus"})
 
-    assert daemon._pending_queue.qsize() == 2
+    assert daemon._transport_queues["ble"].qsize() == 2
 
 
 @pytest.mark.asyncio
 async def test_ble_sender_skips_unknown_event():
-    """_ble_sender must skip unknown events and continue processing the queue."""
+    """_transport_sender must skip unknown events and continue processing the queue."""
     daemon = ClawdDaemon()
-    daemon._ble = AsyncMock()
-    daemon._ble.ensure_connected = AsyncMock()
-    daemon._ble.write_notification = AsyncMock(return_value=True)
+    mock_transport = AsyncMock()
+    mock_transport.is_connected = True
+    mock_transport.ensure_connected = AsyncMock()
+    mock_transport.write_notification = AsyncMock(return_value=True)
+    daemon._transports["ble"] = mock_transport
 
-    await daemon._pending_queue.put({"event": "bogus", "session_id": "x"})
-    await daemon._pending_queue.put({"event": "dismiss", "session_id": "d1"})
+    await daemon._transport_queues["ble"].put({"event": "bogus", "session_id": "x"})
+    await daemon._transport_queues["ble"].put({"event": "dismiss", "session_id": "d1"})
 
-    sender = asyncio.create_task(daemon._ble_sender())
+    sender = asyncio.create_task(daemon._transport_sender("ble"))
     await asyncio.sleep(0.1)
     daemon._running = False
     sender.cancel()
@@ -113,17 +115,17 @@ async def test_ble_sender_skips_unknown_event():
     except asyncio.CancelledError:
         pass
 
-    assert daemon._ble.write_notification.call_count >= 1
+    assert mock_transport.write_notification.call_count >= 1
 
 
-# --- _replay_active ---
+# --- _replay_active_for ---
 
 @pytest.mark.asyncio
 async def test_replay_active_sends_all_active_notifications():
-    """_replay_active must write every currently active notification over BLE."""
+    """_replay_active_for must write every currently active notification."""
     daemon = ClawdDaemon()
-    daemon._ble = AsyncMock()
-    daemon._ble.write_notification = AsyncMock(return_value=True)
+    mock_transport = AsyncMock()
+    mock_transport.write_notification = AsyncMock(return_value=True)
 
     # Populate active notifications directly (bypassing the queue)
     daemon._active_notifications = {
@@ -132,12 +134,12 @@ async def test_replay_active_sends_all_active_notifications():
         "s3": {"event": "add", "session_id": "s3", "project": "p3", "message": "m3"},
     }
 
-    await daemon._replay_active()
+    await daemon._replay_active_for(mock_transport)
 
     # All three active notifications should have been sent
-    assert daemon._ble.write_notification.call_count == 3
-    # Verify BLE payloads contain the right session IDs
-    written_args = [call.args[0] for call in daemon._ble.write_notification.call_args_list]
+    assert mock_transport.write_notification.call_count == 3
+    # Verify payloads contain the right session IDs
+    written_args = [call.args[0] for call in mock_transport.write_notification.call_args_list]
     import json
     written_ids = {json.loads(p)["id"] for p in written_args}
     assert written_ids == {"s1", "s2", "s3"}
@@ -145,22 +147,22 @@ async def test_replay_active_sends_all_active_notifications():
 
 @pytest.mark.asyncio
 async def test_replay_active_empty_store_sends_nothing():
-    """_replay_active with no active notifications must not call write_notification."""
+    """_replay_active_for with no active notifications must not call write_notification."""
     daemon = ClawdDaemon()
-    daemon._ble = AsyncMock()
-    daemon._ble.write_notification = AsyncMock(return_value=True)
+    mock_transport = AsyncMock()
+    mock_transport.write_notification = AsyncMock(return_value=True)
 
-    await daemon._replay_active()
+    await daemon._replay_active_for(mock_transport)
 
-    daemon._ble.write_notification.assert_not_called()
+    mock_transport.write_notification.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_replay_active_skips_unknown_events():
-    """_replay_active must skip entries with unknown events rather than crashing."""
+    """_replay_active_for must skip entries with unknown events rather than crashing."""
     daemon = ClawdDaemon()
-    daemon._ble = AsyncMock()
-    daemon._ble.write_notification = AsyncMock(return_value=True)
+    mock_transport = AsyncMock()
+    mock_transport.write_notification = AsyncMock(return_value=True)
 
     daemon._active_notifications = {
         "s1": {"event": "add", "session_id": "s1", "project": "p", "message": "m"},
@@ -168,25 +170,25 @@ async def test_replay_active_skips_unknown_events():
     }
 
     # Should not raise — bad entry is skipped, valid one is sent
-    await daemon._replay_active()
-    assert daemon._ble.write_notification.call_count == 1
+    await daemon._replay_active_for(mock_transport)
+    assert mock_transport.write_notification.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_replay_active_concurrent_mutation_is_safe():
-    """_replay_active snapshots active notifications so concurrent mutation doesn't crash."""
+    """_replay_active_for snapshots active notifications so concurrent mutation doesn't crash."""
     daemon = ClawdDaemon()
-    daemon._ble = AsyncMock()
 
     write_calls = []
 
     async def slow_write(payload):
         write_calls.append(payload)
-        # Simulate a slow BLE write; concurrent task mutates _active_notifications
+        # Simulate a slow write; concurrent task mutates _active_notifications
         await asyncio.sleep(0.01)
         return True
 
-    daemon._ble.write_notification = slow_write
+    mock_transport = AsyncMock()
+    mock_transport.write_notification = slow_write
 
     daemon._active_notifications = {
         "s1": {"event": "add", "session_id": "s1", "project": "p", "message": "m"},
@@ -202,7 +204,7 @@ async def test_replay_active_concurrent_mutation_is_safe():
         }
 
     # Run replay and mutation concurrently
-    await asyncio.gather(daemon._replay_active(), mutate())
+    await asyncio.gather(daemon._replay_active_for(mock_transport), mutate())
 
     # Replay used a snapshot so it sent s1 and s2 (the state at snapshot time)
     import json
@@ -210,14 +212,15 @@ async def test_replay_active_concurrent_mutation_is_safe():
     assert replayed_ids == {"s1", "s2"}
 
 
-# --- BLE write failure → reconnect → replay ---
+# --- Transport write failure -> reconnect -> replay ---
 
 @pytest.mark.asyncio
 async def test_ble_write_failure_triggers_reconnect_and_replay():
-    """When write_notification returns False, _ble_sender reconnects and replays active notifications."""
+    """When write_notification returns False, _transport_sender reconnects and replays."""
     daemon = ClawdDaemon()
-    daemon._ble = AsyncMock()
-    daemon._ble.is_connected = True
+    mock_transport = AsyncMock()
+    mock_transport.is_connected = True
+    daemon._transports["ble"] = mock_transport
 
     # First write fails; subsequent writes (from replay) succeed
     write_results = [False, True, True]
@@ -227,8 +230,8 @@ async def test_ble_write_failure_triggers_reconnect_and_replay():
         write_calls.append(payload)
         return write_results.pop(0) if write_results else True
 
-    daemon._ble.write_notification = mock_write
-    daemon._ble.ensure_connected = AsyncMock()
+    mock_transport.write_notification = mock_write
+    mock_transport.ensure_connected = AsyncMock()
 
     # Pre-populate one active notification for replay
     daemon._active_notifications = {
@@ -236,11 +239,11 @@ async def test_ble_write_failure_triggers_reconnect_and_replay():
     }
 
     # Enqueue the message that will fail on first write
-    await daemon._pending_queue.put(
+    await daemon._transport_queues["ble"].put(
         {"event": "add", "session_id": "s2", "project": "p", "message": "m"}
     )
 
-    sender = asyncio.create_task(daemon._ble_sender())
+    sender = asyncio.create_task(daemon._transport_sender("ble"))
     await asyncio.sleep(0.2)
     daemon._running = False
     sender.cancel()
@@ -250,17 +253,18 @@ async def test_ble_write_failure_triggers_reconnect_and_replay():
         pass
 
     # ensure_connected must have been called at least twice (initial + reconnect)
-    assert daemon._ble.ensure_connected.call_count >= 2
+    assert mock_transport.ensure_connected.call_count >= 2
     # write_notification called: once for the failing write, once for replay of s1
     assert len(write_calls) >= 2
 
 
 @pytest.mark.asyncio
 async def test_ble_write_failure_replays_multiple_active():
-    """After a BLE write failure, all active notifications are replayed in order."""
+    """After a write failure, all active notifications are replayed in order."""
     daemon = ClawdDaemon()
-    daemon._ble = AsyncMock()
-    daemon._ble.is_connected = True
+    mock_transport = AsyncMock()
+    mock_transport.is_connected = True
+    daemon._transports["ble"] = mock_transport
 
     write_calls = []
     call_count = [0]
@@ -273,19 +277,19 @@ async def test_ble_write_failure_replays_multiple_active():
             return False
         return True
 
-    daemon._ble.write_notification = mock_write
-    daemon._ble.ensure_connected = AsyncMock()
+    mock_transport.write_notification = mock_write
+    mock_transport.ensure_connected = AsyncMock()
 
     daemon._active_notifications = {
         "s1": {"event": "add", "session_id": "s1", "project": "p", "message": "m1"},
         "s2": {"event": "add", "session_id": "s2", "project": "p", "message": "m2"},
     }
 
-    await daemon._pending_queue.put(
+    await daemon._transport_queues["ble"].put(
         {"event": "dismiss", "session_id": "s_gone"}
     )
 
-    sender = asyncio.create_task(daemon._ble_sender())
+    sender = asyncio.create_task(daemon._transport_sender("ble"))
     await asyncio.sleep(0.3)
     daemon._running = False
     sender.cancel()
@@ -299,3 +303,23 @@ async def test_ble_write_failure_replays_multiple_active():
     replayed_ids = {json.loads(p).get("id") for p in write_calls[1:] if json.loads(p).get("id")}
     assert "s1" in replayed_ids
     assert "s2" in replayed_ids
+
+
+# --- Multi-transport ---
+
+@pytest.mark.asyncio
+async def test_handle_message_broadcasts_to_all_transport_queues():
+    """When sim is enabled, messages go to all transport queues."""
+    daemon = ClawdDaemon(sim_port=19872)
+    msg = {"event": "add", "session_id": "s1", "project": "p", "message": "m"}
+    await daemon._handle_message(msg)
+    for q in daemon._transport_queues.values():
+        assert q.qsize() == 1
+
+
+@pytest.mark.asyncio
+async def test_sim_only_mode_has_no_ble_transport():
+    """In sim-only mode, only the sim transport exists."""
+    daemon = ClawdDaemon(sim_port=19872, sim_only=True)
+    assert "ble" not in daemon._transports
+    assert "sim" in daemon._transports

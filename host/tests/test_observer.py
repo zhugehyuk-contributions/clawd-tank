@@ -63,32 +63,37 @@ async def test_no_observer_does_not_crash():
 
 @pytest.mark.asyncio
 async def test_observer_connection_via_disconnect_callback():
-    """BLE client disconnect callback triggers observer."""
+    """Transport disconnect callback triggers observer."""
     observer = MockObserver()
     daemon = ClawdDaemon(observer=observer)
-    daemon._on_ble_disconnect()
+    # Mark BLE transport as disconnected so any() returns False
+    mock_transport = AsyncMock()
+    mock_transport.is_connected = False
+    daemon._transports["ble"] = mock_transport
+    daemon._on_transport_disconnect("ble")
     assert observer.connection_changes == [False]
 
 
 @pytest.mark.asyncio
-async def test_observer_connection_true_on_ble_sender_connect():
-    """_ble_sender fires on_connection_change(True) after reconnect."""
+async def test_observer_connection_true_on_transport_sender_connect():
+    """_transport_sender fires on_connection_change(True) after reconnect."""
     observer = MockObserver()
     daemon = ClawdDaemon(observer=observer)
-    daemon._ble = AsyncMock()
-    daemon._ble.is_connected = False
+    mock_transport = AsyncMock()
+    mock_transport.is_connected = False
 
     async def fake_ensure():
-        daemon._ble.is_connected = True
+        mock_transport.is_connected = True
 
-    daemon._ble.ensure_connected = AsyncMock(side_effect=fake_ensure)
-    daemon._ble.write_notification = AsyncMock(return_value=True)
+    mock_transport.ensure_connected = AsyncMock(side_effect=fake_ensure)
+    mock_transport.write_notification = AsyncMock(return_value=True)
+    daemon._transports["ble"] = mock_transport
 
-    await daemon._pending_queue.put(
+    await daemon._transport_queues["ble"].put(
         {"event": "dismiss", "session_id": "s1"}
     )
 
-    sender = asyncio.create_task(daemon._ble_sender())
+    sender = asyncio.create_task(daemon._transport_sender("ble"))
     await asyncio.sleep(0.1)
     daemon._running = False
     sender.cancel()

@@ -13,6 +13,7 @@ from typing import Optional, Protocol, runtime_checkable
 
 from .ble_client import ClawdBleClient
 from .protocol import daemon_message_to_ble_payload
+from .sim_client import SimClient, SIM_DEFAULT_PORT
 from .socket_server import SocketServer
 
 logger = logging.getLogger("clawd-tank")
@@ -82,14 +83,35 @@ def _acquire_lock(takeover: bool = False) -> int:
 
 
 class ClawdDaemon:
-    def __init__(self, observer: Optional["DaemonObserver"] = None, headless: bool = True):
-        self._ble = ClawdBleClient(
-            on_disconnect_cb=self._on_ble_disconnect,
-            on_connect_cb=self._on_ble_connect,
-        )
+    def __init__(
+        self,
+        observer: Optional["DaemonObserver"] = None,
+        headless: bool = True,
+        sim_port: int = 0,
+        sim_only: bool = False,
+    ):
+        self._transports: dict[str, object] = {}
+        self._transport_queues: dict[str, asyncio.Queue] = {}
+
+        if not sim_only:
+            ble = ClawdBleClient(
+                on_disconnect_cb=lambda: self._on_transport_disconnect("ble"),
+                on_connect_cb=lambda: self._on_transport_connect("ble"),
+            )
+            self._transports["ble"] = ble
+            self._transport_queues["ble"] = asyncio.Queue()
+
+        if sim_port > 0:
+            sim = SimClient(
+                port=sim_port,
+                on_disconnect_cb=lambda: self._on_transport_disconnect("sim"),
+                on_connect_cb=lambda: self._on_transport_connect("sim"),
+            )
+            self._transports["sim"] = sim
+            self._transport_queues["sim"] = asyncio.Queue()
+
         self._socket = SocketServer(on_message=self._handle_message)
         self._active_notifications: dict[str, dict] = {}
-        self._pending_queue: asyncio.Queue[dict] = asyncio.Queue()
         self._running = True
         self._shutdown_event = asyncio.Event()
         self._lock_fd: int | None = None
@@ -106,13 +128,27 @@ class ClawdDaemon:
         elif event == "dismiss":
             self._active_notifications.pop(session_id, None)
 
-        await self._pending_queue.put(msg)
+        for q in self._transport_queues.values():
+            await q.put(msg)
 
         if self._observer:
             self._observer.on_notification_change(len(self._active_notifications))
 
-    async def _sync_time(self) -> None:
-        """Send current host time and timezone to the ESP32."""
+    def _on_transport_connect(self, name: str) -> None:
+        """Called by a transport client on successful connection."""
+        logger.info("Transport '%s' connected", name)
+        if self._observer:
+            self._observer.on_connection_change(True)
+
+    def _on_transport_disconnect(self, name: str) -> None:
+        """Called by a transport client on disconnect."""
+        logger.warning("Transport '%s' disconnected", name)
+        if self._observer:
+            any_connected = any(t.is_connected for t in self._transports.values())
+            self._observer.on_connection_change(any_connected)
+
+    async def _sync_time_for(self, transport) -> None:
+        """Send current host time and timezone to a transport."""
         epoch = int(time.time())
         # Build POSIX TZ string from local UTC offset
         # POSIX TZ signs are inverted: UTC+3 means 3 hours *west* of Greenwich
@@ -123,20 +159,52 @@ class ClawdDaemon:
         minutes = remainder // 60
         tz = f"UTC{sign}{hours}" if minutes == 0 else f"UTC{sign}{hours}:{minutes:02d}"
         payload = json.dumps({"action": "set_time", "epoch": epoch, "tz": tz})
-        await self._ble.write_notification(payload)
-        logger.info("Synced time to ESP32: epoch %d, tz %s", epoch, tz)
+        await transport.write_notification(payload)
+        logger.info("Synced time: epoch %d, tz %s", epoch, tz)
 
-    async def _replay_active(self) -> None:
-        """Replay all active notifications after reconnect."""
+    async def _replay_active_for(self, transport) -> None:
+        """Replay all active notifications to a transport after reconnect."""
         logger.info("Replaying %d active notifications", len(self._active_notifications))
         for msg in list(self._active_notifications.values()):
             try:
                 payload = daemon_message_to_ble_payload(msg)
             except ValueError:
-                logger.error("Skipping unknown event in replay: %s", msg.get("event"))
                 continue
-            await self._ble.write_notification(payload)
-            await asyncio.sleep(0.05)  # Small delay between writes
+            await transport.write_notification(payload)
+            await asyncio.sleep(0.05)
+
+    async def _transport_sender(self, name: str) -> None:
+        """Process pending messages and send them over a named transport."""
+        transport = self._transports[name]
+        queue = self._transport_queues[name]
+        while self._running:
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+            try:
+                payload = daemon_message_to_ble_payload(msg)
+            except ValueError:
+                logger.error("[%s] Skipping unknown event: %s", name, msg.get("event"))
+                continue
+
+            was_connected = transport.is_connected
+            await transport.ensure_connected()
+            if not was_connected and transport.is_connected:
+                await self._sync_time_for(transport)
+                if self._observer:
+                    self._observer.on_connection_change(True)
+
+            success = await transport.write_notification(payload)
+
+            if not success:
+                was_connected = transport.is_connected
+                await transport.ensure_connected()
+                if not was_connected and transport.is_connected:
+                    await self._sync_time_for(transport)
+                    if self._observer:
+                        self._observer.on_connection_change(True)
+                await self._replay_active_for(transport)
 
     def _write_pid(self) -> None:
         PID_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -151,56 +219,37 @@ class ClawdDaemon:
         self._running = False
         self._shutdown_event.set()
 
-        # Send clear to ESP32
         clear_payload = daemon_message_to_ble_payload({"event": "clear"})
-        await self._ble.write_notification(clear_payload)
-        await self._ble.disconnect()
+        for transport in self._transports.values():
+            if transport.is_connected:
+                await transport.write_notification(clear_payload)
+            await transport.disconnect()
         await self._socket.stop()
         self._remove_pid()
         if self._lock_fd is not None:
             os.close(self._lock_fd)
             self._lock_fd = None
 
-    def _on_ble_connect(self) -> None:
-        """Called by BLE client on successful connection."""
-        if self._observer:
-            self._observer.on_connection_change(True)
+    async def read_config(self) -> dict:
+        """Read config from the first connected transport."""
+        for transport in self._transports.values():
+            if transport.is_connected:
+                return await transport.read_config()
+        return {}
 
-    def _on_ble_disconnect(self) -> None:
-        """Called by BLE client on disconnect."""
-        if self._observer:
-            self._observer.on_connection_change(False)
+    async def write_config(self, payload: str) -> bool:
+        """Write config to all connected transports."""
+        success = False
+        for transport in self._transports.values():
+            if transport.is_connected:
+                if await transport.write_config(payload):
+                    success = True
+        return success
 
-    async def _ble_sender(self) -> None:
-        """Process pending messages and send them over BLE."""
-        while self._running:
-            try:
-                msg = await asyncio.wait_for(self._pending_queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
-                continue
-            try:
-                payload = daemon_message_to_ble_payload(msg)
-            except ValueError:
-                logger.error("Skipping unknown event: %s", msg.get("event"))
-                continue
-
-            was_connected = self._ble.is_connected
-            await self._ble.ensure_connected()
-            if not was_connected and self._ble.is_connected:
-                await self._sync_time()
-                if self._observer:
-                    self._observer.on_connection_change(True)
-
-            success = await self._ble.write_notification(payload)
-
-            if not success:
-                was_connected = self._ble.is_connected
-                await self._ble.ensure_connected()
-                if not was_connected and self._ble.is_connected:
-                    await self._sync_time()
-                    if self._observer:
-                        self._observer.on_connection_change(True)
-                await self._replay_active()
+    async def reconnect(self) -> None:
+        """Force reconnect on all transports."""
+        for transport in self._transports.values():
+            await transport.ensure_connected()
 
     async def run(self) -> None:
         """Main daemon loop."""
@@ -219,17 +268,15 @@ class ClawdDaemon:
 
         await self._socket.start()
 
-        # Start BLE connection in background (non-blocking)
-        ble_connect_task = asyncio.create_task(self._ble.connect())
-        sender_task = asyncio.create_task(self._ble_sender())
+        tasks = []
+        for name in self._transports:
+            tasks.append(asyncio.create_task(self._transports[name].connect()))
+            tasks.append(asyncio.create_task(self._transport_sender(name)))
 
-        # Wait until shutdown is signaled
         await self._shutdown_event.wait()
 
-        # Cancel background tasks
-        sender_task.cancel()
-        ble_connect_task.cancel()
-        for task in (sender_task, ble_connect_task):
+        for task in tasks:
+            task.cancel()
             try:
                 await task
             except asyncio.CancelledError:
@@ -237,7 +284,21 @@ class ClawdDaemon:
 
 
 def main():
-    daemon = ClawdDaemon()
+    import argparse
+    parser = argparse.ArgumentParser(description="Clawd Tank daemon")
+    parser.add_argument("--sim", action="store_true",
+                        help="Enable simulator transport (BLE + TCP)")
+    parser.add_argument("--sim-only", action="store_true",
+                        help="Simulator only (no BLE)")
+    parser.add_argument("--sim-port", type=int, default=SIM_DEFAULT_PORT,
+                        help=f"Simulator TCP port (default: {SIM_DEFAULT_PORT})")
+    args = parser.parse_args()
+
+    sim_port = 0
+    if args.sim or args.sim_only or args.sim_port != SIM_DEFAULT_PORT:
+        sim_port = args.sim_port
+
+    daemon = ClawdDaemon(sim_port=sim_port, sim_only=args.sim_only)
     asyncio.run(daemon.run())
 
 

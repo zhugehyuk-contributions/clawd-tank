@@ -45,7 +45,11 @@ async def test_add_then_dismiss_observer_sequence():
 async def test_disconnect_callback_fires_observer():
     obs = FakeObserver()
     daemon = ClawdDaemon(observer=obs)
-    daemon._on_ble_disconnect()
+    # Mark BLE transport as disconnected so any() returns False
+    mock_transport = AsyncMock()
+    mock_transport.is_connected = False
+    daemon._transports["ble"] = mock_transport
+    daemon._on_transport_disconnect("ble")
     assert obs.connection_changes == [False]
 
 
