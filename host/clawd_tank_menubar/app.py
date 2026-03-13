@@ -13,7 +13,7 @@ import rumps
 
 from clawd_tank_daemon.daemon import ClawdDaemon, DaemonObserver
 from clawd_tank_daemon.sim_client import SimClient, SIM_DEFAULT_PORT
-from . import launchd
+from . import hooks, launchd
 from .preferences import load_preferences, save_preferences
 from .slider import create_slider_menu_item
 
@@ -69,6 +69,13 @@ class ClawdTankApp(rumps.App, DaemonObserver):
         prefs = load_preferences()
         self._sim_toggle.state = prefs.get("sim_enabled", False)
 
+        # Claude Code hooks
+        self._hooks_item = rumps.MenuItem(
+            "Install Claude Code Hooks",
+            callback=self._on_install_hooks,
+        )
+        self._hooks_item.state = hooks.are_hooks_installed()
+
         # Launch at login
         self._login_item = rumps.MenuItem(
             "Launch at Login",
@@ -93,6 +100,7 @@ class ClawdTankApp(rumps.App, DaemonObserver):
             None,
             self._sim_toggle,
             None,
+            self._hooks_item,
             self._login_item,
             None,
             self._reconnect_item,
@@ -238,6 +246,22 @@ class ClawdTankApp(rumps.App, DaemonObserver):
                 self._daemon.write_config(payload), self._loop
             )
 
+    def _on_install_hooks(self, sender):
+        if hooks.are_hooks_installed():
+            rumps.alert(
+                title="Hooks Already Installed",
+                message="Claude Code hooks are already configured. "
+                        "Restart your Claude Code sessions to pick up any changes.",
+            )
+            return
+        hooks.install_hooks()
+        sender.state = True
+        rumps.alert(
+            title="Hooks Installed",
+            message="Claude Code hooks have been added to ~/.claude/settings.json. "
+                    "Restart your Claude Code sessions for the hooks to take effect.",
+        )
+
     def _on_toggle_login(self, sender):
         if launchd.is_enabled():
             launchd.disable()
@@ -296,6 +320,7 @@ def main():
             logging.FileHandler(log_dir / "clawd-tank.log"),
         ],
     )
+    hooks.install_notify_script()
     app = ClawdTankApp()
     app._start_daemon_thread()
     app.run()
