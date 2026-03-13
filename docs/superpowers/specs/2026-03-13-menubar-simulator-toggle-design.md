@@ -83,7 +83,7 @@ Simulator: Connecting...
 
 Display names: `"ble"` → `"BLE"`, `"sim"` → `"Simulator"`.
 
-States: `"Connected"`, `"Connecting..."` (enabled but not yet connected), `"Disconnected"` (was connected, lost connection — triggers reconnect).
+States: `"Connected"` and `"Connecting..."` (not yet connected or lost connection — sender retries automatically in both cases).
 
 On startup before the sim toggle is enabled, only the BLE line is shown.
 
