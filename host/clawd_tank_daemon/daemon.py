@@ -25,7 +25,7 @@ LOCK_PATH = Path.home() / ".clawd-tank" / "daemon.lock"
 
 @runtime_checkable
 class DaemonObserver(Protocol):
-    def on_connection_change(self, connected: bool) -> None: ...
+    def on_connection_change(self, connected: bool, transport: str = "") -> None: ...
     def on_notification_change(self, count: int) -> None: ...
 
 
@@ -142,14 +142,14 @@ class ClawdDaemon:
         """Called by a transport client on successful connection."""
         logger.info("Transport '%s' connected", name)
         if self._observer:
-            self._observer.on_connection_change(True)
+            self._observer.on_connection_change(True, name)
 
     def _on_transport_disconnect(self, name: str) -> None:
         """Called by a transport client on disconnect."""
         logger.warning("Transport '%s' disconnected", name)
         if self._observer:
             any_connected = any(t.is_connected for t in self._transports.values())
-            self._observer.on_connection_change(any_connected)
+            self._observer.on_connection_change(any_connected, name)
 
     async def _sync_time_for(self, transport) -> None:
         """Send current host time and timezone to a transport."""

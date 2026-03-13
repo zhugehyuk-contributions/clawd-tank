@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import threading
+from pathlib import Path
 from typing import Optional
 
 import rumps
@@ -114,7 +115,7 @@ class ClawdTankApp(rumps.App, DaemonObserver):
 
     # --- DaemonObserver callbacks (called from asyncio thread) ---
 
-    def on_connection_change(self, connected: bool) -> None:
+    def on_connection_change(self, connected: bool, transport: str = "") -> None:
         self._connected = connected
         if connected and self._loop:
             asyncio.run_coroutine_threadsafe(
@@ -239,9 +240,15 @@ class ClawdTankApp(rumps.App, DaemonObserver):
 
 
 def main():
+    log_dir = Path.home() / "Library" / "Logs" / "ClawdTank"
+    log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_dir / "clawd-tank.log"),
+        ],
     )
     app = ClawdTankApp()
     app._start_daemon_thread()

@@ -16,8 +16,8 @@ class FakeObserver:
         self.connection_changes = []
         self.notification_changes = []
 
-    def on_connection_change(self, connected: bool) -> None:
-        self.connection_changes.append(connected)
+    def on_connection_change(self, connected: bool, transport: str = "") -> None:
+        self.connection_changes.append((connected, transport))
 
     def on_notification_change(self, count: int) -> None:
         self.notification_changes.append(count)
@@ -50,7 +50,18 @@ async def test_disconnect_callback_fires_observer():
     mock_transport.is_connected = False
     daemon._transports["ble"] = mock_transport
     daemon._on_transport_disconnect("ble")
-    assert obs.connection_changes == [False]
+    assert obs.connection_changes == [(False, "ble")]
+
+
+@pytest.mark.asyncio
+async def test_observer_receives_transport_name():
+    obs = FakeObserver()
+    daemon = ClawdDaemon(observer=obs)
+    mock_transport = AsyncMock()
+    mock_transport.is_connected = True
+    daemon._transports["ble"] = mock_transport
+    daemon._on_transport_connect("ble")
+    assert obs.connection_changes == [(True, "ble")]
 
 
 def test_launchd_is_enabled_checks_plist():

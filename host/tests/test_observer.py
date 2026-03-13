@@ -10,7 +10,7 @@ class MockObserver:
         self.connection_changes = []
         self.notification_changes = []
 
-    def on_connection_change(self, connected: bool) -> None:
+    def on_connection_change(self, connected: bool, transport: str = "") -> None:
         self.connection_changes.append(connected)
 
     def on_notification_change(self, count: int) -> None:
