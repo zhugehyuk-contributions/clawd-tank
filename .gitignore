@@ -26,6 +26,7 @@ __pycache__/
 # py2app build artifacts
 host/build/
 host/dist/
+host/.eggs/
 
 # Debug / scratch
 .debug/
