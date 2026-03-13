@@ -92,7 +92,7 @@ cd host && pip install py2app && python setup.py py2app
 open "dist/Clawd Tank.app"
 ```
 
-Pre-built DMGs are available on the [Releases](../../releases) page.
+Pre-built DMGs are available on the [Releases](https://github.com/marciogranzotto/clawd-tank/releases) page.
 
 ## Features
 
