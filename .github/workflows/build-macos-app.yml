@@ -1,0 +1,66 @@
+name: Build macOS App
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: host
+        run: |
+          pip install -r requirements.txt
+          pip install py2app
+
+      - name: Generate app icon
+        working-directory: host
+        run: |
+          mkdir -p AppIcon.iconset
+          for size in 16 32 64 128 256 512; do
+            sips -z $size $size clawd_tank_menubar/icons/crab-connected.png \
+              --out AppIcon.iconset/icon_${size}x${size}.png
+          done
+          for size in 16 32 64 128 256; do
+            double=$((size * 2))
+            sips -z $double $double clawd_tank_menubar/icons/crab-connected.png \
+              --out "AppIcon.iconset/icon_${size}x${size}@2x.png"
+          done
+          iconutil -c icns AppIcon.iconset -o AppIcon.icns
+          rm -rf AppIcon.iconset
+
+      - name: Build .app with py2app
+        working-directory: host
+        run: python setup.py py2app
+
+      - name: Create DMG
+        working-directory: host
+        run: |
+          mkdir -p dmg-staging
+          cp -R "dist/Clawd Tank.app" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname "Clawd Tank" \
+            -srcfolder dmg-staging \
+            -ov -format UDZO \
+            "dist/Clawd-Tank.dmg"
+          rm -rf dmg-staging
+
+      - name: Upload DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Clawd-Tank-macOS
+          path: host/dist/Clawd-Tank.dmg
+
+      - name: Upload DMG to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: host/dist/Clawd-Tank.dmg

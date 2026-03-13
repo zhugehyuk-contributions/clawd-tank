@@ -23,6 +23,10 @@ host/.direnv/
 __pycache__/
 .pytest_cache/
 
+# py2app build artifacts
+host/build/
+host/dist/
+
 # Debug / scratch
 .debug/
 
