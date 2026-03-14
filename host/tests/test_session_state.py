@@ -186,3 +186,61 @@ async def test_compact_triggers_sweeping():
     payloads = [json.loads(c[0][0]) for c in calls]
     assert any(p.get("status") == "sweeping" for p in payloads)
     assert any(p.get("status") == "working_1" for p in payloads)
+
+
+# --- Subagent tracking ---
+
+@pytest.mark.asyncio
+async def test_subagent_start_tracks_agent_id():
+    d = make_daemon()
+    d._session_states["s1"] = {"state": "working", "last_event": time.time()}
+    await d._handle_message({"event": "subagent_start", "session_id": "s1", "agent_id": "a1"})
+    assert "a1" in d._session_states["s1"]["subagents"]
+
+@pytest.mark.asyncio
+async def test_subagent_stop_removes_agent_id():
+    d = make_daemon()
+    d._session_states["s1"] = {"state": "working", "last_event": time.time(), "subagents": {"a1"}}
+    await d._handle_message({"event": "subagent_stop", "session_id": "s1", "agent_id": "a1"})
+    assert "a1" not in d._session_states["s1"].get("subagents", set())
+
+@pytest.mark.asyncio
+async def test_subagent_start_creates_session_if_missing():
+    d = make_daemon()
+    await d._handle_message({"event": "subagent_start", "session_id": "s1", "agent_id": "a1"})
+    assert "s1" in d._session_states
+    assert "a1" in d._session_states["s1"]["subagents"]
+
+@pytest.mark.asyncio
+async def test_subagent_start_refreshes_last_event():
+    d = make_daemon()
+    old_time = time.time() - 500
+    d._session_states["s1"] = {"state": "working", "last_event": old_time}
+    await d._handle_message({"event": "subagent_start", "session_id": "s1", "agent_id": "a1"})
+    assert d._session_states["s1"]["last_event"] > old_time
+
+@pytest.mark.asyncio
+async def test_subagent_stop_refreshes_last_event():
+    d = make_daemon()
+    old_time = time.time() - 500
+    d._session_states["s1"] = {"state": "working", "last_event": old_time, "subagents": {"a1"}}
+    await d._handle_message({"event": "subagent_stop", "session_id": "s1", "agent_id": "a1"})
+    assert d._session_states["s1"]["last_event"] > old_time
+
+@pytest.mark.asyncio
+async def test_subagent_stop_for_unknown_agent_is_noop():
+    d = make_daemon()
+    d._session_states["s1"] = {"state": "working", "last_event": time.time()}
+    # Should not crash
+    await d._handle_message({"event": "subagent_stop", "session_id": "s1", "agent_id": "unknown"})
+    assert d._session_states["s1"]["state"] == "working"
+
+@pytest.mark.asyncio
+async def test_multiple_subagents_tracked():
+    d = make_daemon()
+    d._session_states["s1"] = {"state": "working", "last_event": time.time()}
+    await d._handle_message({"event": "subagent_start", "session_id": "s1", "agent_id": "a1"})
+    await d._handle_message({"event": "subagent_start", "session_id": "s1", "agent_id": "a2"})
+    assert d._session_states["s1"]["subagents"] == {"a1", "a2"}
+    await d._handle_message({"event": "subagent_stop", "session_id": "s1", "agent_id": "a1"})
+    assert d._session_states["s1"]["subagents"] == {"a2"}

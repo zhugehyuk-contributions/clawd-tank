@@ -139,7 +139,7 @@ class ClawdDaemon:
         elif event == "dismiss":
             self._active_notifications.pop(session_id, None)
 
-        self._update_session_state(event, hook, session_id)
+        self._update_session_state(event, hook, session_id, msg.get("agent_id", ""))
 
         # --- Handle compact: send sweeping oneshot ---
         if event == "compact":
@@ -176,7 +176,7 @@ class ClawdDaemon:
             return "confused"
         return "idle"
 
-    def _update_session_state(self, event: str, hook: str, session_id: str) -> None:
+    def _update_session_state(self, event: str, hook: str, session_id: str, agent_id: str = "") -> None:
         """Update per-session state based on a received event."""
         if not session_id:
             return
@@ -207,6 +207,15 @@ class ClawdDaemon:
             else:
                 if session_id in self._session_states:
                     self._session_states[session_id]["last_event"] = now
+        elif event == "subagent_start":
+            self._session_states.setdefault(session_id, {"state": "working", "last_event": now})
+            self._session_states[session_id].setdefault("subagents", set())
+            self._session_states[session_id]["subagents"].add(agent_id)
+            self._session_states[session_id]["last_event"] = now
+        elif event == "subagent_stop":
+            if session_id in self._session_states:
+                self._session_states[session_id].get("subagents", set()).discard(agent_id)
+                self._session_states[session_id]["last_event"] = now
 
     def _evict_stale_sessions(self) -> None:
         now = time.time()
