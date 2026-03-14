@@ -15,7 +15,7 @@
 
 /* ---- CLI options ---- */
 static bool     opt_headless = false;
-static int      opt_scale = 2;
+static int      opt_scale = 1;
 static const char *opt_events = NULL;
 static const char *opt_scenario = NULL;
 static const char *opt_screenshot_dir = NULL;

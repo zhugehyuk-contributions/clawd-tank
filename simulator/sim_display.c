@@ -7,6 +7,10 @@
 /* Border width in native pixels (scaled with window) */
 #define LED_BORDER_PX 4
 
+/* Native display aspect ratio (including border) */
+#define NATIVE_W (SIM_LCD_H_RES + LED_BORDER_PX * 2)
+#define NATIVE_H (SIM_LCD_V_RES + LED_BORDER_PX * 2)
+
 /* Framebuffer — always maintained, both modes read from this */
 static uint16_t s_framebuffer[SIM_LCD_H_RES * SIM_LCD_V_RES];
 
@@ -53,10 +57,29 @@ static uint32_t sdl_tick_cb(void)
     return SDL_GetTicks();
 }
 
-/* ---- Hit-test callback for borderless window dragging ---- */
+/* ---- Hit-test callback for borderless window dragging + resizing ---- */
+#define RESIZE_GRIP 8  /* pixels from edge that count as resize grip */
+
 static SDL_HitTestResult hit_test_cb(SDL_Window *win, const SDL_Point *area, void *data)
 {
-    (void)win; (void)area; (void)data;
+    (void)data;
+    int w, h;
+    SDL_GetWindowSize(win, &w, &h);
+
+    bool left   = area->x < RESIZE_GRIP;
+    bool right  = area->x >= w - RESIZE_GRIP;
+    bool top    = area->y < RESIZE_GRIP;
+    bool bottom = area->y >= h - RESIZE_GRIP;
+
+    if (top && left)     return SDL_HITTEST_RESIZE_TOPLEFT;
+    if (top && right)    return SDL_HITTEST_RESIZE_TOPRIGHT;
+    if (bottom && left)  return SDL_HITTEST_RESIZE_BOTTOMLEFT;
+    if (bottom && right) return SDL_HITTEST_RESIZE_BOTTOMRIGHT;
+    if (left)            return SDL_HITTEST_RESIZE_LEFT;
+    if (right)           return SDL_HITTEST_RESIZE_RIGHT;
+    if (top)             return SDL_HITTEST_RESIZE_TOP;
+    if (bottom)          return SDL_HITTEST_RESIZE_BOTTOM;
+
     return SDL_HITTEST_DRAGGABLE;
 }
 
@@ -100,7 +123,8 @@ lv_display_t *sim_display_init(bool headless, int scale, bool bordered)
         int win_w = SIM_LCD_H_RES * s_scale + border * 2;
         int win_h = SIM_LCD_V_RES * s_scale + border * 2;
 
-        Uint32 flags = bordered ? 0 : SDL_WINDOW_BORDERLESS;
+        Uint32 flags = SDL_WINDOW_RESIZABLE;
+        if (!bordered) flags |= SDL_WINDOW_BORDERLESS;
         s_window = SDL_CreateWindow(
             "Clawd Tank Simulator",
             SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -110,6 +134,9 @@ lv_display_t *sim_display_init(bool headless, int scale, bool bordered)
             fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
             exit(1);
         }
+
+        /* Minimum size = 1x native */
+        SDL_SetWindowMinimumSize(s_window, NATIVE_W, NATIVE_H);
 
         if (!bordered) {
             SDL_SetWindowHitTest(s_window, hit_test_cb, NULL);
@@ -162,19 +189,38 @@ void sim_display_tick(void)
 {
     if (s_headless || s_hidden) return;
 
-    int border = LED_BORDER_PX * s_scale;
+    int win_w, win_h;
+    SDL_GetWindowSize(s_window, &win_w, &win_h);
 
-    /* Fill background with LED color (the border area) */
-    SDL_SetRenderDrawColor(s_renderer, s_led_r, s_led_g, s_led_b, 255);
+    /* Compute the largest integer scale that fits the window while
+     * maintaining the native aspect ratio. The border scales with it. */
+    int scale_x = win_w / NATIVE_W;
+    int scale_y = win_h / NATIVE_H;
+    int scale = scale_x < scale_y ? scale_x : scale_y;
+    if (scale < 1) scale = 1;
+
+    int content_w = NATIVE_W * scale;
+    int content_h = NATIVE_H * scale;
+    int offset_x = (win_w - content_w) / 2;
+    int offset_y = (win_h - content_h) / 2;
+    int border = LED_BORDER_PX * scale;
+
+    /* Fill entire window with black (letterbox bars) */
+    SDL_SetRenderDrawColor(s_renderer, 0, 0, 0, 255);
     SDL_RenderClear(s_renderer);
 
-    /* Render framebuffer texture into the center (inset by border) */
+    /* Fill content area with LED color (the border glow) */
+    SDL_Rect content_rect = { offset_x, offset_y, content_w, content_h };
+    SDL_SetRenderDrawColor(s_renderer, s_led_r, s_led_g, s_led_b, 255);
+    SDL_RenderFillRect(s_renderer, &content_rect);
+
+    /* Render framebuffer texture centered within the content area */
     SDL_UpdateTexture(s_texture, NULL, s_framebuffer, SIM_LCD_H_RES * sizeof(uint16_t));
     SDL_Rect dst = {
-        .x = border,
-        .y = border,
-        .w = SIM_LCD_H_RES * s_scale,
-        .h = SIM_LCD_V_RES * s_scale
+        .x = offset_x + border,
+        .y = offset_y + border,
+        .w = SIM_LCD_H_RES * scale,
+        .h = SIM_LCD_V_RES * scale
     };
     SDL_RenderCopy(s_renderer, s_texture, NULL, &dst);
 
