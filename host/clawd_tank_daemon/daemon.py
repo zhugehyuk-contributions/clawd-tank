@@ -211,13 +211,17 @@ class ClawdDaemon:
                 if session_id in self._session_states:
                     self._session_states[session_id]["last_event"] = now
         elif event == "subagent_start":
+            if not agent_id:
+                return
             self._session_states.setdefault(session_id, {"state": "working", "last_event": now})
             self._session_states[session_id].setdefault("subagents", set())
             self._session_states[session_id]["subagents"].add(agent_id)
             self._session_states[session_id]["last_event"] = now
         elif event == "subagent_stop":
             if session_id in self._session_states:
-                self._session_states[session_id].get("subagents", set()).discard(agent_id)
+                subagents = self._session_states[session_id].get("subagents")
+                if subagents is not None:
+                    subagents.discard(agent_id)
                 self._session_states[session_id]["last_event"] = now
 
     def _evict_stale_sessions(self) -> None:

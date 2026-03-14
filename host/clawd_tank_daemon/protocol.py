@@ -94,8 +94,9 @@ def hook_payload_to_daemon_message(hook: dict) -> Optional[dict]:
 def daemon_message_to_ble_payload(msg: dict) -> Optional[str]:
     """Convert a daemon message to a JSON string for BLE GATT write.
 
-    Returns None for session-internal events (session_start, tool_use, compact)
-    that have no BLE representation. Raises ValueError for unknown events.
+    Returns None for session-internal events (session_start, tool_use, compact,
+    subagent_start, subagent_stop) that have no BLE representation.
+    Raises ValueError for unknown events.
     """
     event = msg["event"]
 

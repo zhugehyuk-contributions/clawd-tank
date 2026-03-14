@@ -246,6 +246,15 @@ async def test_multiple_subagents_tracked():
     assert d._session_states["s1"]["subagents"] == {"a2"}
 
 
+@pytest.mark.asyncio
+async def test_subagent_start_with_empty_agent_id_ignored():
+    """Empty agent_id must not pollute the subagents set."""
+    d = make_daemon()
+    d._session_states["s1"] = {"state": "idle", "last_event": time.time()}
+    await d._handle_message({"event": "subagent_start", "session_id": "s1", "agent_id": ""})
+    assert not d._session_states["s1"].get("subagents")
+
+
 # --- Task 4 / Task 5: eviction suppression and subagent display state ---
 
 def test_staleness_skips_sessions_with_active_subagents():
