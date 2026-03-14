@@ -451,9 +451,12 @@ class ClawdTankApp(rumps.App, DaemonObserver):
         try:
             if self._loop and self._daemon:
                 if self._sim_process:
-                    asyncio.run_coroutine_threadsafe(
+                    # Wait for simulator to stop before shutting down daemon
+                    future = asyncio.run_coroutine_threadsafe(
                         self._sim_process.stop(), self._loop
                     )
+                    future.result(timeout=5)
+                    self._sim_process = None
                 future = asyncio.run_coroutine_threadsafe(
                     self._daemon._shutdown(), self._loop
                 )

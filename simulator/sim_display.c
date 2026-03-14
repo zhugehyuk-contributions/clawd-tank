@@ -92,6 +92,7 @@ lv_display_t *sim_display_init(bool headless, int scale, bool bordered)
         lv_tick_set_cb(sim_get_tick);
     } else {
         /* Interactive: use SDL_GetTicks */
+        SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");  /* Don't show in Dock */
         SDL_Init(SDL_INIT_VIDEO);
         lv_tick_set_cb(sdl_tick_cb);
 
