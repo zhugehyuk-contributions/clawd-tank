@@ -119,24 +119,88 @@ class ClawdDaemon:
         self._lock_fd: int | None = None
         self._observer = observer
         self._headless = headless
+        self._session_states: dict[str, dict] = {}
+        self._last_display_state: str = "sleeping"
 
     async def _handle_message(self, msg: dict) -> None:
         """Handle a message from clawd-tank-notify via the socket."""
         event = msg.get("event")
         session_id = msg.get("session_id", "")
-        logger.info("Socket msg: event=%s session=%s project=%s",
-                     event, session_id[:12], msg.get("project", "?"))
+        hook = msg.get("hook", "")
+        logger.info("Socket msg: event=%s hook=%s session=%s project=%s",
+                     event, hook, session_id[:12], msg.get("project", "?"))
 
         if event == "add":
             self._active_notifications[session_id] = msg
         elif event == "dismiss":
             self._active_notifications.pop(session_id, None)
 
+        self._update_session_state(event, hook, session_id)
+
         for q in self._transport_queues.values():
             await q.put(msg)
 
         if self._observer:
             self._observer.on_notification_change(len(self._active_notifications))
+
+        if event != "compact":
+            await self._broadcast_display_state_if_changed()
+
+    def _compute_display_state(self) -> str:
+        """Derive the display state from all active session states."""
+        if not self._session_states:
+            return "sleeping"
+        working_count = sum(1 for s in self._session_states.values() if s["state"] == "working")
+        if working_count > 0:
+            return f"working_{min(working_count, 3)}"
+        if any(s["state"] == "thinking" for s in self._session_states.values()):
+            return "thinking"
+        if any(s["state"] == "confused" for s in self._session_states.values()):
+            return "confused"
+        return "idle"
+
+    def _update_session_state(self, event: str, hook: str, session_id: str) -> None:
+        """Update per-session state based on a received event."""
+        if not session_id:
+            return
+        now = time.time()
+        if event == "session_start":
+            self._session_states[session_id] = {"state": "registered", "last_event": now}
+        elif event == "tool_use":
+            self._session_states.setdefault(session_id, {"state": "working", "last_event": now})
+            self._session_states[session_id]["state"] = "working"
+            self._session_states[session_id]["last_event"] = now
+        elif event == "compact":
+            if session_id in self._session_states:
+                self._session_states[session_id]["last_event"] = now
+        elif event == "add":
+            self._session_states.setdefault(session_id, {"state": "idle", "last_event": now})
+            if hook == "Stop":
+                self._session_states[session_id]["state"] = "idle"
+            elif hook == "Notification":
+                self._session_states[session_id]["state"] = "confused"
+            self._session_states[session_id]["last_event"] = now
+        elif event == "dismiss":
+            if hook == "SessionEnd":
+                self._session_states.pop(session_id, None)
+            elif hook == "UserPromptSubmit":
+                self._session_states.setdefault(session_id, {"state": "thinking", "last_event": now})
+                self._session_states[session_id]["state"] = "thinking"
+                self._session_states[session_id]["last_event"] = now
+            else:
+                if session_id in self._session_states:
+                    self._session_states[session_id]["last_event"] = now
+
+    async def _broadcast_display_state_if_changed(self) -> None:
+        """Broadcast a set_status action to all connected transports if display state changed."""
+        new_state = self._compute_display_state()
+        if new_state == self._last_display_state:
+            return
+        self._last_display_state = new_state
+        payload = json.dumps({"action": "set_status", "status": new_state})
+        for transport in self._transports.values():
+            if transport.is_connected:
+                await transport.write_notification(payload)
 
     def _on_transport_connect(self, name: str) -> None:
         """Called by a transport client on successful connection."""
