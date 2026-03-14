@@ -196,6 +196,8 @@ class ClawdDaemon:
             except ValueError:
                 logger.error("[%s] Skipping unknown event: %s", name, msg.get("event"))
                 continue
+            if payload is None:
+                continue
 
             was_connected = transport.is_connected
             await transport.ensure_connected()

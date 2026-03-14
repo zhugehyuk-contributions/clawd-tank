@@ -179,3 +179,95 @@ def test_ble_payload_unknown_event_raises():
     import pytest
     with pytest.raises(ValueError):
         daemon_message_to_ble_payload({"event": "bogus"})
+
+
+# --- New hook event types ---
+
+def test_session_start_produces_session_start_event():
+    hook = {
+        "hook_event_name": "SessionStart",
+        "session_id": "sess-1",
+    }
+    msg = hook_payload_to_daemon_message(hook)
+    assert msg is not None
+    assert msg["event"] == "session_start"
+    assert msg["session_id"] == "sess-1"
+
+
+def test_pre_tool_use_produces_tool_use_event():
+    hook = {
+        "hook_event_name": "PreToolUse",
+        "session_id": "sess-2",
+    }
+    msg = hook_payload_to_daemon_message(hook)
+    assert msg is not None
+    assert msg["event"] == "tool_use"
+    assert msg["session_id"] == "sess-2"
+
+
+def test_pre_compact_produces_compact_event():
+    hook = {
+        "hook_event_name": "PreCompact",
+        "session_id": "sess-3",
+    }
+    msg = hook_payload_to_daemon_message(hook)
+    assert msg is not None
+    assert msg["event"] == "compact"
+    assert msg["session_id"] == "sess-3"
+
+
+# --- Hook discriminator field ---
+
+def test_stop_add_includes_hook_discriminator():
+    hook = {
+        "hook_event_name": "Stop",
+        "session_id": "s1",
+        "cwd": "/tmp/my-project",
+    }
+    msg = hook_payload_to_daemon_message(hook)
+    assert msg is not None
+    assert msg["event"] == "add"
+    assert msg["hook"] == "Stop"
+
+
+def test_notification_add_includes_hook_discriminator():
+    hook = {
+        "hook_event_name": "Notification",
+        "notification_type": "idle_prompt",
+        "session_id": "s1",
+        "cwd": "/tmp/my-project",
+        "message": "idle",
+    }
+    msg = hook_payload_to_daemon_message(hook)
+    assert msg is not None
+    assert msg["event"] == "add"
+    assert msg["hook"] == "Notification"
+
+
+def test_prompt_submit_dismiss_includes_hook_discriminator():
+    hook = {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "s1",
+    }
+    msg = hook_payload_to_daemon_message(hook)
+    assert msg is not None
+    assert msg["event"] == "dismiss"
+    assert msg["hook"] == "UserPromptSubmit"
+
+
+def test_session_end_dismiss_includes_hook_discriminator():
+    hook = {
+        "hook_event_name": "SessionEnd",
+        "session_id": "s1",
+    }
+    msg = hook_payload_to_daemon_message(hook)
+    assert msg is not None
+    assert msg["event"] == "dismiss"
+    assert msg["hook"] == "SessionEnd"
+
+
+def test_session_events_produce_no_ble_payload():
+    """session_start, tool_use, compact return None from daemon_message_to_ble_payload."""
+    assert daemon_message_to_ble_payload({"event": "session_start", "session_id": "s"}) is None
+    assert daemon_message_to_ble_payload({"event": "tool_use", "session_id": "s"}) is None
+    assert daemon_message_to_ble_payload({"event": "compact", "session_id": "s"}) is None
