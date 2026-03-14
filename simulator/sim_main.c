@@ -3,6 +3,7 @@
 #include "sim_events.h"
 #include "sim_screenshot.h"
 #include "sim_socket.h"
+#include "sim_timer.h"
 #include "ui_manager.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -157,6 +158,9 @@ static void run_headless(void)
             sim_socket_process();
         }
 
+        /* Advance simulated timers (drives RGB LED animation) */
+        sim_timers_tick(TICK_MS);
+
         /* LVGL tick */
         ui_manager_tick();
 
@@ -251,7 +255,7 @@ static void handle_sdl_events(void);
 
 static void run_interactive(void)
 {
-    printf("[sim] Interactive mode (scale=%dx). Keys: c=connect d=disconnect n=notify x=clear s=screenshot q=quit\n",
+    printf("[sim] Interactive mode (scale=%dx). Keys: c=connect d=disconnect n=notify 1-8=dismiss x=clear s=screenshot z=sleep q/esc=quit\n",
            opt_scale);
 
     while (!sim_display_should_quit()) {
@@ -266,6 +270,9 @@ static void run_interactive(void)
         if (opt_listen_port > 0) {
             sim_socket_process();
         }
+
+        /* Advance simulated timers (drives RGB LED animation) */
+        sim_timers_tick(TICK_MS);
 
         ui_manager_tick();
         sim_display_tick();  /* present to SDL window */

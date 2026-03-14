@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <SDL.h>
 
+/* Border width in native pixels (scaled with window) */
+#define LED_BORDER_PX 4
+
 /* Framebuffer — always maintained, both modes read from this */
 static uint16_t s_framebuffer[SIM_LCD_H_RES * SIM_LCD_V_RES];
 
@@ -19,6 +22,18 @@ static SDL_Window   *s_window   = NULL;
 static SDL_Renderer *s_renderer = NULL;
 static SDL_Texture  *s_texture  = NULL;
 static int s_scale = 3;
+
+/* RGB LED color (updated by led_strip shim via sim_rgb_led_update) */
+static uint8_t s_led_r = 0, s_led_g = 0, s_led_b = 0;
+
+/* ---- RGB LED bridge (called from led_strip shim) ---- */
+
+void sim_rgb_led_update(uint8_t r, uint8_t g, uint8_t b)
+{
+    s_led_r = r;
+    s_led_g = g;
+    s_led_b = b;
+}
 
 /* ---- Simulated time ---- */
 
@@ -79,10 +94,14 @@ lv_display_t *sim_display_init(bool headless, int scale)
         SDL_Init(SDL_INIT_VIDEO);
         lv_tick_set_cb(sdl_tick_cb);
 
+        int border = LED_BORDER_PX * s_scale;
+        int win_w = SIM_LCD_H_RES * s_scale + border * 2;
+        int win_h = SIM_LCD_V_RES * s_scale + border * 2;
+
         s_window = SDL_CreateWindow(
             "Clawd Tank Simulator",
             SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-            SIM_LCD_H_RES * s_scale, SIM_LCD_V_RES * s_scale,
+            win_w, win_h,
             SDL_WINDOW_BORDERLESS);
         if (!s_window) {
             fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
@@ -138,10 +157,22 @@ void sim_display_tick(void)
 {
     if (s_headless) return;
 
-    /* Present framebuffer to SDL window */
-    SDL_UpdateTexture(s_texture, NULL, s_framebuffer, SIM_LCD_H_RES * sizeof(uint16_t));
+    int border = LED_BORDER_PX * s_scale;
+
+    /* Fill background with LED color (the border area) */
+    SDL_SetRenderDrawColor(s_renderer, s_led_r, s_led_g, s_led_b, 255);
     SDL_RenderClear(s_renderer);
-    SDL_RenderCopy(s_renderer, s_texture, NULL, NULL); /* SDL handles upscale */
+
+    /* Render framebuffer texture into the center (inset by border) */
+    SDL_UpdateTexture(s_texture, NULL, s_framebuffer, SIM_LCD_H_RES * sizeof(uint16_t));
+    SDL_Rect dst = {
+        .x = border,
+        .y = border,
+        .w = SIM_LCD_H_RES * s_scale,
+        .h = SIM_LCD_V_RES * s_scale
+    };
+    SDL_RenderCopy(s_renderer, s_texture, NULL, &dst);
+
     SDL_RenderPresent(s_renderer);
 }
 
