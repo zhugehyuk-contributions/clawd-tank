@@ -167,7 +167,10 @@ class ClawdDaemon:
         """Derive the display state from all active session states."""
         if not self._session_states:
             return "sleeping"
-        working_count = sum(1 for s in self._session_states.values() if s["state"] == "working")
+        working_count = sum(
+            1 for s in self._session_states.values()
+            if s["state"] == "working" or s.get("subagents")
+        )
         if working_count > 0:
             return f"working_{min(working_count, 3)}"
         if any(s["state"] == "thinking" for s in self._session_states.values()):
