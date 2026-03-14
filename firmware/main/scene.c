@@ -16,6 +16,12 @@
 #include "assets/sprite_happy.h"
 #include "assets/sprite_sleeping.h"
 #include "assets/sprite_disconnected.h"
+#include "assets/sprite_thinking.h"
+#include "assets/sprite_typing.h"
+#include "assets/sprite_juggling.h"
+#include "assets/sprite_building.h"
+#include "assets/sprite_confused.h"
+#include "assets/sprite_sweeping.h"
 #include "rle_sprite.h"
 
 /* ---------- Constants ---------- */
@@ -35,6 +41,12 @@
 #define HAPPY_FRAME_MS     (1000 / 10)  /* 100ms @ 10fps */
 #define SLEEPING_FRAME_MS  (1000 / 6)   /* 167ms @ 6fps */
 #define DISCONN_FRAME_MS   (1000 / 6)   /* 167ms @ 6fps */
+#define THINKING_FRAME_MS  (1000 / 8)   /* 125ms @ 8fps */
+#define TYPING_FRAME_MS    (1000 / 8)   /* 125ms @ 8fps */
+#define JUGGLING_FRAME_MS  (1000 / 8)   /* 125ms @ 8fps */
+#define BUILDING_FRAME_MS  (1000 / 8)   /* 125ms @ 8fps */
+#define CONFUSED_FRAME_MS  (1000 / 8)   /* 125ms @ 8fps */
+#define SWEEPING_FRAME_MS  (1000 / 8)   /* 125ms @ 8fps */
 
 /* ---------- Animation metadata ---------- */
 
@@ -98,6 +110,66 @@ static const anim_def_t anim_defs[] = {
         .looping = true,
         .width = DISCONNECTED_WIDTH,
         .height = DISCONNECTED_HEIGHT,
+        .y_offset = 8,
+    },
+    [CLAWD_ANIM_THINKING] = {
+        .rle_data = thinking_rle_data,
+        .frame_offsets = thinking_frame_offsets,
+        .frame_count = THINKING_FRAME_COUNT,
+        .frame_ms = THINKING_FRAME_MS,
+        .looping = true,
+        .width = THINKING_WIDTH,
+        .height = THINKING_HEIGHT,
+        .y_offset = 8,
+    },
+    [CLAWD_ANIM_TYPING] = {
+        .rle_data = typing_rle_data,
+        .frame_offsets = typing_frame_offsets,
+        .frame_count = TYPING_FRAME_COUNT,
+        .frame_ms = TYPING_FRAME_MS,
+        .looping = true,
+        .width = TYPING_WIDTH,
+        .height = TYPING_HEIGHT,
+        .y_offset = 8,
+    },
+    [CLAWD_ANIM_JUGGLING] = {
+        .rle_data = juggling_rle_data,
+        .frame_offsets = juggling_frame_offsets,
+        .frame_count = JUGGLING_FRAME_COUNT,
+        .frame_ms = JUGGLING_FRAME_MS,
+        .looping = true,
+        .width = JUGGLING_WIDTH,
+        .height = JUGGLING_HEIGHT,
+        .y_offset = 8,
+    },
+    [CLAWD_ANIM_BUILDING] = {
+        .rle_data = building_rle_data,
+        .frame_offsets = building_frame_offsets,
+        .frame_count = BUILDING_FRAME_COUNT,
+        .frame_ms = BUILDING_FRAME_MS,
+        .looping = true,
+        .width = BUILDING_WIDTH,
+        .height = BUILDING_HEIGHT,
+        .y_offset = 8,
+    },
+    [CLAWD_ANIM_CONFUSED] = {
+        .rle_data = confused_rle_data,
+        .frame_offsets = confused_frame_offsets,
+        .frame_count = CONFUSED_FRAME_COUNT,
+        .frame_ms = CONFUSED_FRAME_MS,
+        .looping = true,
+        .width = CONFUSED_WIDTH,
+        .height = CONFUSED_HEIGHT,
+        .y_offset = 8,
+    },
+    [CLAWD_ANIM_SWEEPING] = {
+        .rle_data = sweeping_rle_data,
+        .frame_offsets = sweeping_frame_offsets,
+        .frame_count = SWEEPING_FRAME_COUNT,
+        .frame_ms = SWEEPING_FRAME_MS,
+        .looping = false,
+        .width = SWEEPING_WIDTH,
+        .height = SWEEPING_HEIGHT,
         .y_offset = 8,
     },
 };

@@ -9,6 +9,12 @@ typedef enum {
     CLAWD_ANIM_HAPPY,
     CLAWD_ANIM_SLEEPING,
     CLAWD_ANIM_DISCONNECTED,
+    CLAWD_ANIM_THINKING,
+    CLAWD_ANIM_TYPING,
+    CLAWD_ANIM_JUGGLING,
+    CLAWD_ANIM_BUILDING,
+    CLAWD_ANIM_CONFUSED,
+    CLAWD_ANIM_SWEEPING,
 } clawd_anim_id_t;
 
 scene_t *scene_create(lv_obj_t *parent);

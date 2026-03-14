@@ -79,12 +79,12 @@ static clawd_anim_id_t status_to_anim(display_status_t status) {
     switch (status) {
     case DISPLAY_STATUS_SLEEPING:  return CLAWD_ANIM_SLEEPING;
     case DISPLAY_STATUS_IDLE:      return CLAWD_ANIM_IDLE;
-    case DISPLAY_STATUS_THINKING:  return CLAWD_ANIM_IDLE;  /* placeholder until sprite exists */
-    case DISPLAY_STATUS_WORKING_1: return CLAWD_ANIM_IDLE;  /* placeholder */
-    case DISPLAY_STATUS_WORKING_2: return CLAWD_ANIM_IDLE;  /* placeholder */
-    case DISPLAY_STATUS_WORKING_3: return CLAWD_ANIM_IDLE;  /* placeholder */
-    case DISPLAY_STATUS_CONFUSED:  return CLAWD_ANIM_IDLE;  /* placeholder */
-    case DISPLAY_STATUS_SWEEPING:  return CLAWD_ANIM_IDLE;  /* placeholder */
+    case DISPLAY_STATUS_THINKING:  return CLAWD_ANIM_THINKING;
+    case DISPLAY_STATUS_WORKING_1: return CLAWD_ANIM_TYPING;
+    case DISPLAY_STATUS_WORKING_2: return CLAWD_ANIM_JUGGLING;
+    case DISPLAY_STATUS_WORKING_3: return CLAWD_ANIM_BUILDING;
+    case DISPLAY_STATUS_CONFUSED:  return CLAWD_ANIM_CONFUSED;
+    case DISPLAY_STATUS_SWEEPING:  return CLAWD_ANIM_SWEEPING;
     default:                       return CLAWD_ANIM_IDLE;
     }
 }
