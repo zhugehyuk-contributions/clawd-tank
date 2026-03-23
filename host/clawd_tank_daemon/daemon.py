@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional, Protocol, runtime_checkable
 
 from .ble_client import ClawdBleClient
+from .network_server import NetworkServer, NETWORK_DEFAULT_PORT
 from .protocol import daemon_message_to_ble_payload, display_state_to_ble_payload, display_state_to_v1_payload
 from .sim_client import SimClient, SIM_DEFAULT_PORT
 from .socket_server import SocketServer
@@ -154,6 +155,8 @@ class ClawdDaemon:
         self._last_display_state: dict = {"status": "sleeping"}
         self._transport_versions: dict[str, int] = {}  # transport_name → protocol version
         self._session_staleness_timeout: float = 600.0
+        self._network_server: Optional[NetworkServer] = None
+        self._network_client = None  # NetworkClient instance for client/hybrid mode
         self._evict_stale_sessions()
 
     async def _handle_message(self, msg: dict) -> None:
@@ -231,6 +234,13 @@ class ClawdDaemon:
         for q in self._transport_queues.values():
             await q.put(msg)
 
+        # Forward to remote server if in client/hybrid mode
+        if self._network_client and self._network_client.is_connected:
+            try:
+                await self._network_client.forward_message(msg)
+            except Exception:
+                logger.debug("Forward to server failed", exc_info=True)
+
         if self._observer:
             self._observer.on_notification_change(len(self._active_notifications))
 
@@ -239,6 +249,71 @@ class ClawdDaemon:
 
         if changed:
             self._persist_sessions()
+
+    async def _handle_remote_message(self, hostname: str, msg: dict) -> None:
+        """Handle a message from a remote network client with session scoping."""
+        session_id = msg.get("session_id", "")
+        if session_id:
+            msg["session_id"] = f"{hostname}:{session_id}"
+        project = msg.get("project", "")
+        if project:
+            msg["project"] = f"[{hostname}] {project}"
+        logger.info("Remote msg from %s: event=%s session=%s",
+                     hostname, msg.get("event", "?"), msg.get("session_id", "?")[:20])
+        await self._handle_message(msg)
+
+    def _handle_client_disconnect(self, hostname: str) -> None:
+        """Remove all sessions belonging to a disconnected remote client."""
+        prefix = f"{hostname}:"
+        stale_sids = [sid for sid in self._session_states if sid.startswith(prefix)]
+        if not stale_sids:
+            return
+        for sid in stale_sids:
+            del self._session_states[sid]
+            self._active_notifications.pop(sid, None)
+        self._session_order = [
+            (sid, did) for sid, did in self._session_order
+            if not sid.startswith(prefix)
+        ]
+        logger.info("Network client disconnected: %s, removed %d sessions",
+                     hostname, len(stale_sids))
+        self._persist_sessions()
+        # Schedule async display broadcast
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._broadcast_display_state_if_changed())
+        except RuntimeError:
+            pass
+        if self._observer:
+            self._observer.on_notification_change(len(self._active_notifications))
+
+    async def start_network_server(self, port: int = NETWORK_DEFAULT_PORT) -> None:
+        """Start the TCP network server for receiving remote clients."""
+        if self._network_server:
+            await self.stop_network_server()
+        self._network_server = NetworkServer(
+            port=port,
+            on_message=self._handle_remote_message,
+            on_client_change=self._on_network_client_change,
+            on_client_disconnect=self._handle_client_disconnect,
+        )
+        await self._network_server.start()
+
+    async def stop_network_server(self) -> None:
+        """Stop the TCP network server."""
+        if self._network_server:
+            await self._network_server.stop()
+            self._network_server = None
+
+    def set_network_client(self, client) -> None:
+        """Set the NetworkClient for hybrid/client mode forwarding."""
+        self._network_client = client
+
+    def _on_network_client_change(self, clients: list[str]) -> None:
+        """Called when the set of connected network clients changes."""
+        logger.info("Network clients: %s", clients)
+        if self._observer and hasattr(self._observer, 'on_network_client_change'):
+            self._observer.on_network_client_change(clients)
 
     def _compute_display_state(self) -> dict:
         """Derive the display state from all active session states."""
@@ -559,6 +634,10 @@ class ClawdDaemon:
             except asyncio.CancelledError:
                 pass
         self._sender_tasks.clear()
+
+        if self._network_server:
+            await self._network_server.stop()
+            self._network_server = None
 
         clear_payload = daemon_message_to_ble_payload({"event": "clear"})
         for transport in self._transports.values():

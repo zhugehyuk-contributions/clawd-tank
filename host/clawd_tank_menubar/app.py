@@ -104,6 +104,36 @@ class ClawdTankApp(rumps.App, DaemonObserver):
                 item.state = True
             self._session_timeout_menu.add(item)
 
+        # --- Network submenu ---
+        self._net_menu = rumps.MenuItem("Network \u2014 Server")
+        self._net_status = rumps.MenuItem("Status: Initializing...")
+        self._net_status.set_callback(None)
+        self._net_mode_server = rumps.MenuItem(
+            "Mode: Server", callback=self._on_select_server_mode
+        )
+        self._net_mode_client = rumps.MenuItem(
+            "Mode: Client", callback=self._on_select_client_mode
+        )
+        net_mode = prefs.get("network_mode", "server")
+        self._net_mode_server.state = net_mode == "server"
+        self._net_mode_client.state = net_mode == "client"
+        self._net_server_host_item = rumps.MenuItem(
+            f"Server: {prefs.get('network_server_host', '') or '(not set)'}"
+        )
+        self._net_server_host_item.set_callback(self._on_set_server_host)
+        self._net_clients_header = rumps.MenuItem("Connected Clients")
+        self._net_clients_header.set_callback(None)
+        self._net_client_items: list[rumps.MenuItem] = []
+        self._net_menu.update([
+            self._net_status,
+            None,
+            self._net_mode_server,
+            self._net_mode_client,
+            None,
+            self._net_server_host_item,
+            self._net_clients_header,
+        ])
+
         # Claude Code hooks
         self._hooks_item = rumps.MenuItem(
             "Install Claude Code Hooks",
@@ -133,6 +163,7 @@ class ClawdTankApp(rumps.App, DaemonObserver):
         self.menu = [
             self._ble_menu,
             self._sim_menu,
+            self._net_menu,
             None,
             self._brightness_item,
             self._session_timeout_menu,
@@ -196,6 +227,14 @@ class ClawdTankApp(rumps.App, DaemonObserver):
 
         if prefs.get("sim_enabled", True):
             self._start_simulator()
+
+        # Start network server if in server mode (default)
+        net_mode = prefs.get("network_mode", "server")
+        if net_mode == "server":
+            net_port = prefs.get("network_port", 19873)
+            asyncio.run_coroutine_threadsafe(
+                self._daemon.start_network_server(net_port), self._loop
+            )
 
     # --- DaemonObserver callbacks (called from asyncio thread) ---
 
@@ -274,6 +313,24 @@ class ClawdTankApp(rumps.App, DaemonObserver):
                 self._sim_status.title = "Status: Connecting..."
             self._sim_window_toggle.set_callback(self._on_toggle_sim_window)
             self._sim_pinned_toggle.set_callback(self._on_toggle_sim_pinned)
+
+        # --- Network submenu state ---
+        if self._net_mode_server.state:
+            if self._daemon and self._daemon._network_server and self._daemon._network_server.is_listening:
+                clients = self._daemon._network_server.get_client_list()
+                n = len(clients)
+                self._net_menu.title = f"Network \U0001F7E2 Server ({n} client{'s' if n != 1 else ''})"
+                self._net_status.title = f"Status: Listening ({n} client{'s' if n != 1 else ''})"
+            else:
+                self._net_menu.title = "Network \u2014 Server"
+                self._net_status.title = "Status: Starting..."
+        elif self._net_mode_client.state:
+            if self._daemon and self._daemon._network_client and self._daemon._network_client.is_connected:
+                self._net_menu.title = "Network \U0001F7E2 Client"
+                self._net_status.title = "Status: Connected"
+            else:
+                self._net_menu.title = "Network \U0001F7E1 Client"
+                self._net_status.title = "Status: Connecting..."
 
         # --- Icon and global state ---
         if connected:
@@ -402,6 +459,71 @@ class ClawdTankApp(rumps.App, DaemonObserver):
             self._sim_window_toggle.state = False
             save_preferences(updates={"sim_window_visible": False})
             self._schedule_menu_update()
+
+    def _on_select_server_mode(self, sender):
+        """Switch to server mode."""
+        self._net_mode_server.state = True
+        self._net_mode_client.state = False
+        save_preferences(updates={"network_mode": "server"})
+
+        # Stop client if was in client mode
+        if self._daemon:
+            self._daemon.set_network_client(None)
+
+        # Start server
+        if self._loop and self._daemon:
+            port = load_preferences().get("network_port", 19873)
+            asyncio.run_coroutine_threadsafe(
+                self._daemon.start_network_server(port), self._loop
+            )
+        self._schedule_menu_update()
+
+    def _on_select_client_mode(self, sender):
+        """Switch to client mode."""
+        self._net_mode_server.state = False
+        self._net_mode_client.state = True
+        save_preferences(updates={"network_mode": "client"})
+
+        # Stop server if was in server mode
+        if self._loop and self._daemon:
+            asyncio.run_coroutine_threadsafe(
+                self._daemon.stop_network_server(), self._loop
+            )
+
+        # Start client
+        prefs = load_preferences()
+        host = prefs.get("network_server_host", "")
+        port = prefs.get("network_server_port", 19873)
+        if not host:
+            rumps.alert("Network", "Set the server IP address first.")
+            return
+
+        from clawd_tank_daemon.network_client import NetworkClient
+        client = NetworkClient(
+            host=host, port=port,
+            on_connect_cb=lambda: self._schedule_menu_update(),
+            on_disconnect_cb=lambda: self._schedule_menu_update(),
+        )
+        if self._daemon:
+            self._daemon.set_network_client(client)
+        if self._loop:
+            asyncio.run_coroutine_threadsafe(client.connect(), self._loop)
+        self._schedule_menu_update()
+
+    def _on_set_server_host(self, sender):
+        """Prompt for server IP address."""
+        resp = rumps.Window(
+            title="Network Server",
+            message="Enter server IP address:",
+            default_text=load_preferences().get("network_server_host", ""),
+            ok="Save",
+            cancel="Cancel",
+        ).run()
+        if resp.clicked:
+            host = resp.text.strip()
+            if host:
+                save_preferences(updates={"network_server_host": host})
+                self._net_server_host_item.title = f"Server: {host}"
 
     def _on_install_hooks(self, sender):
         was_installed = hooks.are_hooks_installed()

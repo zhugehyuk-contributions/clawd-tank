@@ -12,6 +12,11 @@ DEFAULTS = {
     "sim_enabled": True,
     "sim_window_visible": True,
     "sim_always_on_top": True,
+    "network_mode": "server",
+    "network_port": 19873,
+    "network_server_host": "",
+    "network_server_port": 19873,
+    "network_bonjour_enabled": True,
 }
 PREFS_PATH = Path.home() / ".clawd-tank" / "preferences.json"
 
