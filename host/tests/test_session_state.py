@@ -36,22 +36,22 @@ def test_no_sessions_returns_sleeping():
 def test_single_registered_session_returns_idle():
     d = make_daemon()
     _add_session(d, "s1", {"state": "registered", "last_event": time.time()})
-    assert d._compute_display_state() == {"anims": ["idle"], "ids": [1], "subagents": 0}
+    assert d._compute_display_state() == {"anims": ["idle"], "ids": [1], "subagents": 0, "skins": [0]}
 
 def test_single_idle_session_returns_idle():
     d = make_daemon()
     _add_session(d, "s1", {"state": "idle", "last_event": time.time()})
-    assert d._compute_display_state() == {"anims": ["idle"], "ids": [1], "subagents": 0}
+    assert d._compute_display_state() == {"anims": ["idle"], "ids": [1], "subagents": 0, "skins": [0]}
 
 def test_single_thinking_session_returns_thinking():
     d = make_daemon()
     _add_session(d, "s1", {"state": "thinking", "last_event": time.time()})
-    assert d._compute_display_state() == {"anims": ["thinking"], "ids": [1], "subagents": 0}
+    assert d._compute_display_state() == {"anims": ["thinking"], "ids": [1], "subagents": 0, "skins": [0]}
 
 def test_single_working_session_returns_typing():
     d = make_daemon()
     _add_session(d, "s1", {"state": "working", "last_event": time.time()})
-    assert d._compute_display_state() == {"anims": ["typing"], "ids": [1], "subagents": 0}
+    assert d._compute_display_state() == {"anims": ["typing"], "ids": [1], "subagents": 0, "skins": [0]}
 
 def test_two_working_sessions_returns_two_typing():
     d = make_daemon()
@@ -160,16 +160,16 @@ async def test_last_display_state_tracks_changes():
     d = make_daemon()
     assert d._last_display_state == {"status": "sleeping"}
     await d._handle_message({"event": "session_start", "session_id": "s1"})
-    assert d._last_display_state == {"anims": ["idle"], "ids": [1], "subagents": 0}
+    assert d._last_display_state == {"anims": ["idle"], "ids": [1], "subagents": 0, "skins": [0]}
     await d._handle_message({"event": "dismiss", "hook": "UserPromptSubmit", "session_id": "s1"})
-    assert d._last_display_state == {"anims": ["thinking"], "ids": [1], "subagents": 0}
+    assert d._last_display_state == {"anims": ["thinking"], "ids": [1], "subagents": 0, "skins": [0]}
     await d._handle_message({"event": "tool_use", "session_id": "s1"})
-    assert d._last_display_state == {"anims": ["typing"], "ids": [1], "subagents": 0}
+    assert d._last_display_state == {"anims": ["typing"], "ids": [1], "subagents": 0, "skins": [0]}
     await d._handle_message({
         "event": "add", "hook": "Stop", "session_id": "s1",
         "project": "proj", "message": "Waiting",
     })
-    assert d._last_display_state == {"anims": ["idle"], "ids": [1], "subagents": 0}
+    assert d._last_display_state == {"anims": ["idle"], "ids": [1], "subagents": 0, "skins": [0]}
     await d._handle_message({"event": "dismiss", "hook": "SessionEnd", "session_id": "s1"})
     assert d._last_display_state == {"status": "sleeping"}
 
@@ -200,7 +200,7 @@ async def test_compact_triggers_sweeping():
     d._transports["test"] = transport
     d._transport_queues["test"] = asyncio.Queue()
     d._transport_versions["test"] = 2  # v2 transport to get set_sessions
-    d._last_display_state = {"anims": ["typing"], "ids": [1], "subagents": 0}
+    d._last_display_state = {"anims": ["typing"], "ids": [1], "subagents": 0, "skins": [0]}
 
     await d._handle_message({"event": "compact", "session_id": "s1"})
 
@@ -388,10 +388,10 @@ async def test_subagent_lifecycle():
 
     # Session starts and begins working
     await d._handle_message({"event": "session_start", "session_id": "s1"})
-    assert d._compute_display_state() == {"anims": ["idle"], "ids": [1], "subagents": 0}
+    assert d._compute_display_state() == {"anims": ["idle"], "ids": [1], "subagents": 0, "skins": [0]}
 
     await d._handle_message({"event": "tool_use", "session_id": "s1"})
-    assert d._compute_display_state() == {"anims": ["typing"], "ids": [1], "subagents": 0}
+    assert d._compute_display_state() == {"anims": ["typing"], "ids": [1], "subagents": 0, "skins": [0]}
 
     # Subagent spawned — session becomes conducting
     await d._handle_message({"event": "subagent_start", "session_id": "s1", "agent_id": "a1"})
@@ -413,7 +413,7 @@ async def test_subagent_lifecycle():
     # Subagent finishes via SubagentStop
     await d._handle_message({"event": "subagent_stop", "session_id": "s1", "agent_id": "a1"})
     assert not d._session_states["s1"].get("subagents")
-    assert d._compute_display_state() == {"anims": ["idle"], "ids": [1], "subagents": 0}
+    assert d._compute_display_state() == {"anims": ["idle"], "ids": [1], "subagents": 0, "skins": [0]}
 
     # Staleness eviction works normally
     d._session_states["s1"]["last_event"] = time.time() - 9999
@@ -535,7 +535,7 @@ def test_daemon_startup_display_state_from_loaded_sessions(tmp_path):
     d = ClawdDaemon(sim_only=True, sessions_path=path)
     d._transports.clear()
     d._transport_queues.clear()
-    assert d._compute_display_state() == {"anims": ["typing"], "ids": [1], "subagents": 0}
+    assert d._compute_display_state() == {"anims": ["typing"], "ids": [1], "subagents": 0, "skins": [0]}
 
 
 def test_daemon_evicts_stale_sessions_on_startup(tmp_path):
@@ -614,7 +614,7 @@ async def test_display_state_single_session_typing():
     await d._handle_message({"event": "session_start", "session_id": "aaa"})
     await d._handle_message({"event": "tool_use", "session_id": "aaa"})
     state = d._compute_display_state()
-    assert state == {"anims": ["typing"], "ids": [1], "subagents": 0}
+    assert state == {"anims": ["typing"], "ids": [1], "subagents": 0, "skins": [0]}
 
 
 @pytest.mark.asyncio
@@ -790,7 +790,7 @@ async def test_compact_sends_per_session_sweeping_v2():
 def test_error_state_returns_dizzy():
     d = make_daemon()
     _add_session(d, "s1", {"state": "error", "last_event": time.time()})
-    assert d._compute_display_state() == {"anims": ["dizzy"], "ids": [1], "subagents": 0}
+    assert d._compute_display_state() == {"anims": ["dizzy"], "ids": [1], "subagents": 0, "skins": [0]}
 
 
 @pytest.mark.asyncio

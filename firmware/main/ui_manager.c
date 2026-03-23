@@ -261,6 +261,7 @@ void ui_manager_handle_event(const ble_evt_t *evt)
          * legacy scene_set_clawd_anim() path.  No shortcut needed. */
         scene_set_sessions(s_scene,
             evt->session_anims, evt->session_ids,
+            evt->session_skins, evt->session_skin_colors,
             evt->session_anim_count, evt->subagent_count, evt->session_overflow);
 
         s_last_activity_tick = lv_tick_get();

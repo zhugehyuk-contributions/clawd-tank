@@ -298,6 +298,8 @@ typedef struct {
     bool active;
     bool walking_in;       /* true while walk-in slide animation is running */
     bool departing;        /* true while going-away exit animation is playing */
+    uint8_t skin_id;       /* 0=default, 1=white, 2=transparent, 3=black, 4=custom */
+    uint32_t skin_color;   /* custom body color (RGB888), used when skin_id==4 */
 } clawd_slot_t;
 
 /* ---------- Star config ---------- */
@@ -812,6 +814,36 @@ void scene_set_clawd_anim(scene_t *scene, clawd_anim_id_t anim)
     }
 }
 
+static void apply_skin(clawd_slot_t *slot)
+{
+    if (!slot->sprite_img) return;
+    switch (slot->skin_id) {
+    case SKIN_WHITE:
+        lv_obj_set_style_image_recolor(slot->sprite_img, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_image_recolor_opa(slot->sprite_img, 180, 0);
+        lv_obj_set_style_opa(slot->sprite_img, LV_OPA_COVER, 0);
+        break;
+    case SKIN_TRANSPARENT:
+        lv_obj_set_style_image_recolor_opa(slot->sprite_img, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_opa(slot->sprite_img, 120, 0);
+        break;
+    case SKIN_BLACK:
+        lv_obj_set_style_image_recolor(slot->sprite_img, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_image_recolor_opa(slot->sprite_img, 200, 0);
+        lv_obj_set_style_opa(slot->sprite_img, LV_OPA_COVER, 0);
+        break;
+    case SKIN_CUSTOM:
+        lv_obj_set_style_image_recolor(slot->sprite_img, lv_color_hex(slot->skin_color), 0);
+        lv_obj_set_style_image_recolor_opa(slot->sprite_img, 160, 0);
+        lv_obj_set_style_opa(slot->sprite_img, LV_OPA_COVER, 0);
+        break;
+    default: /* SKIN_DEFAULT */
+        lv_obj_set_style_image_recolor_opa(slot->sprite_img, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_opa(slot->sprite_img, LV_OPA_COVER, 0);
+        break;
+    }
+}
+
 void scene_set_fallback_anim(scene_t *scene, clawd_anim_id_t anim)
 {
     if (!scene) return;
@@ -1069,6 +1101,7 @@ static void scene_update_hud(scene_t *s, uint8_t subagent_count, uint8_t overflo
 }
 
 void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
+                        const uint8_t *skins, const uint32_t *skin_colors,
                         int count, uint8_t subagent_count, uint8_t overflow)
 {
     if (!s) return;
@@ -1093,6 +1126,8 @@ void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
         }
 
         slot->display_id = ids[0];
+        slot->skin_id = skins ? skins[0] : SKIN_DEFAULT;
+        slot->skin_color = skin_colors ? skin_colors[0] : 0;
 
         clawd_anim_id_t new_anim = (clawd_anim_id_t)anims[0];
         int old_x_off = slot->x_off;
@@ -1180,11 +1215,12 @@ void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
             lv_obj_align(slot->sprite_img, LV_ALIGN_BOTTOM_MID, 0, def->y_offset);
         }
 
+        apply_skin(slot);
         scene_update_hud(s, subagent_count, overflow, 1 + overflow);
         s->active_slot_count = 1;
 
-        printf("[scene] set_sessions single id=%d anim=%d walking=%d old_x=%d\n",
-               ids[0], new_anim, slot->walking_in, old_x_off);
+        printf("[scene] set_sessions single id=%d anim=%d skin=%d walking=%d old_x=%d\n",
+               ids[0], new_anim, slot->skin_id, slot->walking_in, old_x_off);
         return;
     }
 
@@ -1248,6 +1284,9 @@ void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
             old_slots[old_i].sprite_img = NULL; /* transferred ownership */
             old_slots[old_i].frame_buf = NULL;
             s->slots[new_i].display_id = ids[new_i];
+            s->slots[new_i].skin_id = skins ? skins[new_i] : SKIN_DEFAULT;
+            s->slots[new_i].skin_color = skin_colors ? skin_colors[new_i] : 0;
+            apply_skin(&s->slots[new_i]);
 
             clawd_anim_id_t new_anim = (clawd_anim_id_t)anims[new_i];
 
@@ -1315,8 +1354,11 @@ void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
              * "250px right of center" (off-screen on a 320px display). */
             scene_activate_slot(s, new_i, CLAWD_ANIM_WALKING);
             s->slots[new_i].display_id = ids[new_i];
+            s->slots[new_i].skin_id = skins ? skins[new_i] : SKIN_DEFAULT;
+            s->slots[new_i].skin_color = skin_colors ? skin_colors[new_i] : 0;
             s->slots[new_i].x_off = x_off;
             s->slots[new_i].fallback_anim = (clawd_anim_id_t)anims[new_i];
+            apply_skin(&s->slots[new_i]);
 
             /* Start off-screen right: large positive X offset from BOTTOM_MID.
              * Y stays as y_offset (already set by scene_activate_slot's align). */

@@ -41,6 +41,8 @@ typedef struct {
     uint8_t session_anim_count;
     uint8_t session_anims[MAX_VISIBLE_SESSIONS];
     uint16_t session_ids[MAX_VISIBLE_SESSIONS];
+    uint8_t session_skins[MAX_VISIBLE_SESSIONS];      /* skin preset ID per slot */
+    uint32_t session_skin_colors[MAX_VISIBLE_SESSIONS]; /* custom color per slot */
     uint8_t subagent_count;
     uint8_t session_overflow;
     uint8_t alert;  /* 0=none, 1=error */

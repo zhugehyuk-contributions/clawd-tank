@@ -43,6 +43,15 @@ def _tool_to_anim(tool_name: str) -> str:
     return TOOL_ANIMATION_MAP.get(tool_name, "typing")
 
 
+SKIN_NAME_TO_ID = {
+    "clawd": 0,
+    "clawd-white": 1,
+    "clawd-transparent": 2,
+    "clawd-black": 3,
+    "clawd-custom": 4,
+}
+
+
 PID_PATH = Path.home() / ".clawd-tank" / "daemon.pid"
 LOCK_PATH = Path.home() / ".clawd-tank" / "daemon.lock"
 
@@ -198,9 +207,14 @@ class ClawdDaemon:
 
         changed = self._update_session_state(event, hook, session_id, msg.get("agent_id", ""), msg.get("tool_name", ""))
 
-        # Store project name after session state is created
+        # Store project name and skin after session state is created
         if project and session_id and session_id in self._session_states:
             self._session_states[session_id]["project"] = project
+        skin = msg.get("skin")
+        if skin and session_id and session_id in self._session_states:
+            self._session_states[session_id]["skin"] = skin
+            if skin == "clawd-custom":
+                self._session_states[session_id]["body_color"] = msg.get("body_color", "FF8800")
 
         # --- Handle compact: send sweeping oneshot ---
         if event == "compact":
@@ -336,6 +350,8 @@ class ClawdDaemon:
 
         anims = []
         ids = []
+        skins = []
+        skin_colors = []
 
         # Count subagents across ALL sessions, not just visible ones
         total_subagents = sum(
@@ -382,11 +398,18 @@ class ClawdDaemon:
             else:
                 anims.append("idle")
             ids.append(display_id)
+            skin_name = state.get("skin", "clawd")
+            skin_id = SKIN_NAME_TO_ID.get(skin_name, 0)
+            skins.append(skin_id)
+            skin_colors.append(state.get("body_color", ""))
 
         if not anims:
             return {"status": "sleeping"}
 
-        result = {"anims": anims, "ids": ids, "subagents": total_subagents}
+        result = {"anims": anims, "ids": ids, "subagents": total_subagents, "skins": skins}
+        # Only include skin_colors if any custom skins exist
+        if any(s == 4 for s in skins):
+            result["skin_colors"] = skin_colors
         if len(self._session_order) > 4:
             result["overflow"] = len(self._session_order) - 4
         return result

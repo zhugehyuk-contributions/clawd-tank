@@ -117,21 +117,21 @@ async def run_multi_demo(host: str, port: int):
     m2, w2 = connections[2]  # linux-ci
 
     steps = [
-        # macbook-pro starts coding
+        # macbook-pro starts coding (default skin)
         (0.5, w0, {"event": "session_start", "session_id": "s1", "project": "api-server"},
          "[A] macbook-pro: session_start api-server"),
         (1.0, w0, {"event": "tool_use", "session_id": "s1", "tool_name": "Edit", "project": "api-server"},
          "[A] macbook-pro: Edit api-server"),
 
-        # imac-studio joins with ML work
-        (0.5, w1, {"event": "session_start", "session_id": "s1", "project": "ml-pipeline"},
-         "[B] imac-studio: session_start ml-pipeline"),
+        # imac-studio joins with ML work (white skin)
+        (0.5, w1, {"event": "session_start", "session_id": "s1", "project": "ml-pipeline", "skin": "clawd-white"},
+         "[B] imac-studio: session_start ml-pipeline (clawd-white)"),
         (1.0, w1, {"event": "tool_use", "session_id": "s1", "tool_name": "Bash", "project": "ml-pipeline"},
          "[B] imac-studio: Bash ml-pipeline"),
 
-        # linux-ci starts deploy
-        (0.5, w2, {"event": "session_start", "session_id": "s1", "project": "infra-deploy"},
-         "[C] linux-ci: session_start infra-deploy"),
+        # linux-ci starts deploy (black skin)
+        (0.5, w2, {"event": "session_start", "session_id": "s1", "project": "infra-deploy", "skin": "clawd-black"},
+         "[C] linux-ci: session_start infra-deploy (clawd-black)"),
         (1.0, w2, {"event": "tool_use", "session_id": "s1", "tool_name": "Bash", "project": "infra-deploy"},
          "[C] linux-ci: Bash infra-deploy"),
 
@@ -141,9 +141,9 @@ async def run_multi_demo(host: str, port: int):
         (0.5, w0, {"event": "subagent_start", "session_id": "s1", "agent_id": "agent-review"},
          "[A] macbook-pro: subagent started"),
 
-        # macbook-pro starts 2nd session
-        (0.5, w0, {"event": "session_start", "session_id": "s2", "project": "auth-lib"},
-         "[A] macbook-pro: session_start auth-lib (2nd session)"),
+        # macbook-pro starts 2nd session (custom red skin)
+        (0.5, w0, {"event": "session_start", "session_id": "s2", "project": "auth-lib", "skin": "clawd-custom", "body_color": "FF0000"},
+         "[A] macbook-pro: session_start auth-lib (clawd-custom red)"),
         (1.0, w0, {"event": "tool_use", "session_id": "s2", "tool_name": "Read", "project": "auth-lib"},
          "[A] macbook-pro: Read auth-lib"),
 
@@ -155,9 +155,9 @@ async def run_multi_demo(host: str, port: int):
         (2.0, w2, {"event": "add", "hook": "Stop", "session_id": "s1", "project": "infra-deploy", "message": "Deploy complete. Proceed?"},
          "[C] linux-ci: NOTIFICATION 'Deploy complete. Proceed?'"),
 
-        # linux-ci starts 2nd session for monitoring
-        (1.0, w2, {"event": "session_start", "session_id": "s2", "project": "monitoring"},
-         "[C] linux-ci: session_start monitoring"),
+        # linux-ci starts 2nd session for monitoring (transparent skin)
+        (1.0, w2, {"event": "session_start", "session_id": "s2", "project": "monitoring", "skin": "clawd-transparent"},
+         "[C] linux-ci: session_start monitoring (clawd-transparent)"),
         (1.0, w2, {"event": "tool_use", "session_id": "s2", "tool_name": "Grep", "project": "monitoring"},
          "[C] linux-ci: Grep monitoring"),
 
@@ -240,10 +240,19 @@ async def interactive(host: str, port: int, hostname: str):
             elif cmd == "s":
                 session_counter += 1
                 current_sid = f"{hostname}-{session_counter}"
-                current_project = arg or f"project-{session_counter}"
+                # Parse: s <project> [skin] [body_color]
+                s_parts = arg.split()
+                current_project = s_parts[0] if s_parts else f"project-{session_counter}"
+                skin = s_parts[1] if len(s_parts) > 1 else None
+                body_color = s_parts[2] if len(s_parts) > 2 else None
                 msg = {"event": "session_start", "session_id": current_sid, "project": current_project}
+                if skin:
+                    msg["skin"] = skin
+                if body_color:
+                    msg["body_color"] = body_color
                 await send(writer, msg)
-                print(f"  [session {current_sid}] started ({current_project})")
+                skin_info = f" skin={skin}" if skin else ""
+                print(f"  [session {current_sid}] started ({current_project}{skin_info})")
             elif cmd == "t":
                 if not current_sid:
                     print("  No active session. Use 's' first.")

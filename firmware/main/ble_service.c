@@ -169,6 +169,9 @@ static void parse_notification_json(const char *buf, uint16_t len) {
         cJSON *overflow = cJSON_GetObjectItem(json, "overflow");
         evt.session_overflow = overflow && cJSON_IsNumber(overflow) ? (uint8_t)overflow->valueint : 0;
 
+        cJSON *skins_arr = cJSON_GetObjectItem(json, "skins");
+        cJSON *skin_colors_arr = cJSON_GetObjectItem(json, "skin_colors");
+
         int anim_size = cJSON_GetArraySize(anims);
         int id_size = cJSON_GetArraySize(ids);
         int count = anim_size < id_size ? anim_size : id_size;
@@ -180,8 +183,22 @@ static void parse_notification_json(const char *buf, uint16_t len) {
             if (!a || !cJSON_IsString(a) || !id || !cJSON_IsNumber(id)) continue;
             int anim = parse_anim_name(a->valuestring);
             if (anim < 0) continue;
-            evt.session_anims[evt.session_anim_count] = (uint8_t)anim;
-            evt.session_ids[evt.session_anim_count] = (uint16_t)id->valueint;
+            int idx = evt.session_anim_count;
+            evt.session_anims[idx] = (uint8_t)anim;
+            evt.session_ids[idx] = (uint16_t)id->valueint;
+            /* Parse skin preset */
+            evt.session_skins[idx] = 0;
+            evt.session_skin_colors[idx] = 0;
+            if (skins_arr && cJSON_IsArray(skins_arr)) {
+                cJSON *sk = cJSON_GetArrayItem(skins_arr, i);
+                if (sk && cJSON_IsNumber(sk))
+                    evt.session_skins[idx] = (uint8_t)sk->valueint;
+            }
+            if (skin_colors_arr && cJSON_IsArray(skin_colors_arr)) {
+                cJSON *sc = cJSON_GetArrayItem(skin_colors_arr, i);
+                if (sc && cJSON_IsString(sc))
+                    evt.session_skin_colors[idx] = (uint32_t)strtoul(sc->valuestring, NULL, 16);
+            }
             evt.session_anim_count++;
         }
     } else {
