@@ -240,7 +240,8 @@ async def test_remote_project_badged():
     })
     notif = daemon._active_notifications.get("macbook-b:s1")
     assert notif is not None
-    assert notif["project"] == "[macbook-b] clawd-tank"
+    # Label is auto-assigned: first client gets "A"
+    assert notif["project"] == "[A] clawd-tank"
 
 
 # Trace: Scenario 3, Section 3d — remote in display state
@@ -445,7 +446,9 @@ async def test_badge_format_bracket_hostname():
         "session_id": "s1", "project": "my-proj", "message": "hi"
     })
     notif = daemon._active_notifications["my-mac:s1"]
-    assert notif["project"].startswith("[my-mac] ")
+    # Auto-assigned label, format is [X]
+    assert notif["project"].startswith("[")
+    assert "] my-proj" in notif["project"]
 
 
 # Trace: Scenario 6, Section 3b — BLE payload contains badge
@@ -456,9 +459,9 @@ async def test_remote_notification_in_ble_payload():
 
     msg = {
         "event": "add", "session_id": "macbook-b:s1",
-        "project": "[macbook-b] clawd-tank", "message": "Waiting"
+        "project": "[A] clawd-tank", "message": "Waiting"
     }
     payload_str = daemon_message_to_ble_payload(msg)
     payload = json.loads(payload_str)
-    assert payload["project"] == "[macbook-b] clawd-tank"
+    assert payload["project"] == "[A] clawd-tank"
     assert payload["id"] == "macbook-b:s1"

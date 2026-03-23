@@ -157,6 +157,8 @@ class ClawdDaemon:
         self._session_staleness_timeout: float = 600.0
         self._network_server: Optional[NetworkServer] = None
         self._network_client = None  # NetworkClient instance for client/hybrid mode
+        self._client_labels: dict[str, str] = {}  # hostname → short label (A, B, C...)
+        self._next_label_idx: int = 0
         self._evict_stale_sessions()
 
     async def _handle_message(self, msg: dict) -> None:
@@ -250,16 +252,26 @@ class ClawdDaemon:
         if changed:
             self._persist_sessions()
 
+    def _get_client_label(self, hostname: str) -> str:
+        """Get or assign a short label (A, B, C...) for a remote client."""
+        if hostname not in self._client_labels:
+            label = chr(ord('A') + self._next_label_idx)
+            self._next_label_idx += 1
+            self._client_labels[hostname] = label
+            logger.info("Assigned label [%s] to client '%s'", label, hostname)
+        return self._client_labels[hostname]
+
     async def _handle_remote_message(self, hostname: str, msg: dict) -> None:
         """Handle a message from a remote network client with session scoping."""
+        label = self._get_client_label(hostname)
         session_id = msg.get("session_id", "")
         if session_id:
             msg["session_id"] = f"{hostname}:{session_id}"
         project = msg.get("project", "")
         if project:
-            msg["project"] = f"[{hostname}] {project}"
-        logger.info("Remote msg from %s: event=%s session=%s",
-                     hostname, msg.get("event", "?"), msg.get("session_id", "?")[:20])
+            msg["project"] = f"[{label}] {project}"
+        logger.info("Remote [%s] %s: event=%s session=%s",
+                     label, hostname, msg.get("event", "?"), msg.get("session_id", "?")[:20])
         await self._handle_message(msg)
 
     def _handle_client_disconnect(self, hostname: str) -> None:
@@ -275,8 +287,9 @@ class ClawdDaemon:
             (sid, did) for sid, did in self._session_order
             if not sid.startswith(prefix)
         ]
-        logger.info("Network client disconnected: %s, removed %d sessions",
-                     hostname, len(stale_sids))
+        label = self._client_labels.pop(hostname, "?")
+        logger.info("Network client [%s] %s disconnected, removed %d sessions",
+                     label, hostname, len(stale_sids))
         self._persist_sessions()
         # Schedule async display broadcast
         try:
@@ -311,7 +324,8 @@ class ClawdDaemon:
 
     def _on_network_client_change(self, clients: list[str]) -> None:
         """Called when the set of connected network clients changes."""
-        logger.info("Network clients: %s", clients)
+        labeled = [f"[{self._client_labels.get(h, '?')}] {h}" for h in clients]
+        logger.info("Network clients: %s", labeled)
         if self._observer and hasattr(self._observer, 'on_network_client_change'):
             self._observer.on_network_client_change(clients)
 

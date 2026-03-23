@@ -19,7 +19,8 @@ Interactive commands:
     a-            Subagent stop
     n <message>   Custom notification
     c             Clear all notifications
-    demo          Run automated demo sequence
+    demo          Run single-machine demo (3 sessions)
+    demo2         Run multi-machine demo (3 machines, 5 sessions, labels [A][B][C])
     q             Quit
 """
 
@@ -84,6 +85,122 @@ async def run_demo(writer):
         await asyncio.sleep(0.3)
 
     print("Demo complete.")
+
+
+async def run_multi_demo(host: str, port: int):
+    """Simulate 3 machines connecting simultaneously with interleaved work."""
+    machines = [
+        {"hostname": "macbook-pro", "projects": ["api-server", "auth-lib"]},
+        {"hostname": "imac-studio", "projects": ["ml-pipeline"]},
+        {"hostname": "linux-ci", "projects": ["infra-deploy", "monitoring"]},
+    ]
+
+    # Connect all machines
+    connections = []
+    for m in machines:
+        r, w = await asyncio.open_connection(host, port)
+        hello = json.dumps({"type": "hello", "hostname": m["hostname"]}) + "\n"
+        w.write(hello.encode())
+        await w.drain()
+        welcome = await asyncio.wait_for(r.readline(), timeout=5.0)
+        wdata = json.loads(welcome.decode())
+        print(f"  {m['hostname']} connected → server {wdata.get('server', '?')}")
+        connections.append((m, w))
+        await asyncio.sleep(0.3)
+
+    async def s(writer, msg):
+        writer.write((json.dumps(msg) + "\n").encode())
+        await writer.drain()
+
+    m0, w0 = connections[0]  # macbook-pro
+    m1, w1 = connections[1]  # imac-studio
+    m2, w2 = connections[2]  # linux-ci
+
+    steps = [
+        # macbook-pro starts coding
+        (0.5, w0, {"event": "session_start", "session_id": "s1", "project": "api-server"},
+         "[A] macbook-pro: session_start api-server"),
+        (1.0, w0, {"event": "tool_use", "session_id": "s1", "tool_name": "Edit", "project": "api-server"},
+         "[A] macbook-pro: Edit api-server"),
+
+        # imac-studio joins with ML work
+        (0.5, w1, {"event": "session_start", "session_id": "s1", "project": "ml-pipeline"},
+         "[B] imac-studio: session_start ml-pipeline"),
+        (1.0, w1, {"event": "tool_use", "session_id": "s1", "tool_name": "Bash", "project": "ml-pipeline"},
+         "[B] imac-studio: Bash ml-pipeline"),
+
+        # linux-ci starts deploy
+        (0.5, w2, {"event": "session_start", "session_id": "s1", "project": "infra-deploy"},
+         "[C] linux-ci: session_start infra-deploy"),
+        (1.0, w2, {"event": "tool_use", "session_id": "s1", "tool_name": "Bash", "project": "infra-deploy"},
+         "[C] linux-ci: Bash infra-deploy"),
+
+        # macbook-pro spawns subagent
+        (1.0, w0, {"event": "tool_use", "session_id": "s1", "tool_name": "Agent", "project": "api-server"},
+         "[A] macbook-pro: Agent (spawning subagent)"),
+        (0.5, w0, {"event": "subagent_start", "session_id": "s1", "agent_id": "agent-review"},
+         "[A] macbook-pro: subagent started"),
+
+        # macbook-pro starts 2nd session
+        (0.5, w0, {"event": "session_start", "session_id": "s2", "project": "auth-lib"},
+         "[A] macbook-pro: session_start auth-lib (2nd session)"),
+        (1.0, w0, {"event": "tool_use", "session_id": "s2", "tool_name": "Read", "project": "auth-lib"},
+         "[A] macbook-pro: Read auth-lib"),
+
+        # imac-studio searches web
+        (1.0, w1, {"event": "tool_use", "session_id": "s1", "tool_name": "WebSearch", "project": "ml-pipeline"},
+         "[B] imac-studio: WebSearch ml-pipeline"),
+
+        # linux-ci finishes, waits for input
+        (2.0, w2, {"event": "add", "hook": "Stop", "session_id": "s1", "project": "infra-deploy", "message": "Deploy complete. Proceed?"},
+         "[C] linux-ci: NOTIFICATION 'Deploy complete. Proceed?'"),
+
+        # linux-ci starts 2nd session for monitoring
+        (1.0, w2, {"event": "session_start", "session_id": "s2", "project": "monitoring"},
+         "[C] linux-ci: session_start monitoring"),
+        (1.0, w2, {"event": "tool_use", "session_id": "s2", "tool_name": "Grep", "project": "monitoring"},
+         "[C] linux-ci: Grep monitoring"),
+
+        # imac-studio hits error
+        (2.0, w1, {"event": "add", "hook": "StopFailure", "session_id": "s1", "project": "ml-pipeline", "message": "CUDA out of memory"},
+         "[B] imac-studio: ERROR 'CUDA out of memory' (red LED flash)"),
+
+        # macbook-pro subagent done
+        (2.0, w0, {"event": "subagent_stop", "session_id": "s1", "agent_id": "agent-review"},
+         "[A] macbook-pro: subagent stopped"),
+
+        # linux-ci user responds
+        (1.0, w2, {"event": "dismiss", "hook": "UserPromptSubmit", "session_id": "s1"},
+         "[C] linux-ci: user responds → thinking"),
+
+        # Hold for viewing
+        (3.0, None, None, "... holding for 3s ..."),
+    ]
+
+    print("\nRunning multi-machine demo (3 machines, 5 sessions)...\n")
+    for i, (delay, writer, msg, desc) in enumerate(steps, 1):
+        print(f"  [{i:2d}/{len(steps)}] {desc}")
+        if writer and msg:
+            await s(writer, msg)
+        await asyncio.sleep(delay)
+
+    # Clean up: end all sessions
+    print("\n  Cleaning up sessions...")
+    for m, w in connections:
+        for sid in ["s1", "s2"]:
+            await s(w, {"event": "dismiss", "hook": "SessionEnd", "session_id": sid})
+            await asyncio.sleep(0.1)
+
+    # Disconnect all
+    for m, w in connections:
+        w.close()
+        try:
+            await w.wait_closed()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+
+    await asyncio.sleep(0.5)
+    print("Multi-machine demo complete.\n")
 
 
 async def interactive(host: str, port: int, hostname: str):
@@ -188,6 +305,8 @@ async def interactive(host: str, port: int, hostname: str):
                 print("  Cleared all")
             elif cmd == "demo":
                 await run_demo(writer)
+            elif cmd == "demo2":
+                await run_multi_demo(host, port)
             else:
                 print(f"  Unknown command: {cmd}. Type 'help' for commands.")
 
