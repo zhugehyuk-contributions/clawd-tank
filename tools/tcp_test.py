@@ -21,6 +21,7 @@ Interactive commands:
     c             Clear all notifications
     demo          Run single-machine demo (3 sessions)
     demo2         Run multi-machine demo (3 machines, 5 sessions, labels [A][B][C])
+    demo3         Run skin color showcase (presets + custom colors + rainbow cycle)
     q             Quit
 """
 
@@ -203,6 +204,122 @@ async def run_multi_demo(host: str, port: int):
     print("Multi-machine demo complete.\n")
 
 
+async def run_skin_demo(host: str, port: int):
+    """Showcase all skin presets + custom colors cycling through animations."""
+    skins = [
+        ("default",     None,             None),
+        ("clawd-white", "clawd-white",    None),
+        ("clawd-black", "clawd-black",    None),
+        ("clawd-transparent", "clawd-transparent", None),
+        ("red",         "clawd-custom",   "FF0000"),
+        ("blue",        "clawd-custom",   "0088FF"),
+        ("green",       "clawd-custom",   "00CC44"),
+        ("purple",      "clawd-custom",   "AA00FF"),
+        ("gold",        "clawd-custom",   "FFD700"),
+        ("cyan",        "clawd-custom",   "00FFFF"),
+        ("pink",        "clawd-custom",   "FF69B4"),
+        ("lime",        "clawd-custom",   "AAFF00"),
+    ]
+    tools = ["Edit", "Bash", "Read", "Agent", "WebSearch", "Grep"]
+
+    r, w = await asyncio.open_connection(host, port)
+    w.write((json.dumps({"type": "hello", "hostname": "skin-demo"}) + "\n").encode())
+    await w.drain()
+    welcome = await asyncio.wait_for(r.readline(), timeout=5.0)
+    print(f"Connected to {json.loads(welcome.decode()).get('server', '?')}\n")
+
+    async def s(msg):
+        w.write((json.dumps(msg) + "\n").encode())
+        await w.drain()
+
+    print("=== Phase 1: All 5 presets side by side ===\n")
+    preset_sids = []
+    for i, (name, skin, color) in enumerate(skins[:4]):
+        sid = f"preset-{i}"
+        preset_sids.append(sid)
+        msg = {"event": "session_start", "session_id": sid, "project": name}
+        if skin:
+            msg["skin"] = skin
+        if color:
+            msg["body_color"] = color
+        await s(msg)
+        await asyncio.sleep(0.3)
+        await s({"event": "tool_use", "session_id": sid, "tool_name": tools[i % len(tools)], "project": name})
+        print(f"  [{i+1}/4] {name:20s} → {tools[i % len(tools)]}")
+        await asyncio.sleep(0.5)
+
+    print("\n  Showing 4 presets for 5s...")
+    await asyncio.sleep(5)
+
+    # Remove presets
+    for sid in preset_sids:
+        await s({"event": "dismiss", "hook": "SessionEnd", "session_id": sid})
+        await asyncio.sleep(0.2)
+    await asyncio.sleep(1)
+
+    print("\n=== Phase 2: Custom color parade (4 at a time) ===\n")
+    custom_skins = skins[4:]  # red, blue, green, purple, gold, cyan, pink, lime
+    for batch_start in range(0, len(custom_skins), 4):
+        batch = custom_skins[batch_start:batch_start + 4]
+        batch_sids = []
+        for i, (name, skin, color) in enumerate(batch):
+            sid = f"color-{batch_start + i}"
+            batch_sids.append(sid)
+            msg = {"event": "session_start", "session_id": sid, "project": name, "skin": skin, "body_color": color}
+            await s(msg)
+            await asyncio.sleep(0.2)
+            tool = tools[(batch_start + i) % len(tools)]
+            await s({"event": "tool_use", "session_id": sid, "tool_name": tool, "project": name})
+            print(f"  #{color} {name:8s} → {tool}")
+            await asyncio.sleep(0.3)
+
+        print(f"\n  Showing batch for 5s...")
+        await asyncio.sleep(5)
+
+        for sid in batch_sids:
+            await s({"event": "dismiss", "hook": "SessionEnd", "session_id": sid})
+            await asyncio.sleep(0.2)
+        await asyncio.sleep(1)
+
+    print("\n=== Phase 3: Rainbow animation cycle ===\n")
+    rainbow = [
+        ("FF0000", "Edit"),    # red
+        ("FF8800", "Bash"),    # orange
+        ("FFFF00", "Read"),    # yellow
+        ("00FF00", "Agent"),   # green
+    ]
+    rainbow_sids = []
+    for i, (color, tool) in enumerate(rainbow):
+        sid = f"rainbow-{i}"
+        rainbow_sids.append(sid)
+        await s({"event": "session_start", "session_id": sid, "project": f"#{color}", "skin": "clawd-custom", "body_color": color})
+        await asyncio.sleep(0.2)
+        await s({"event": "tool_use", "session_id": sid, "tool_name": tool, "project": f"#{color}"})
+        print(f"  #{color} → {tool}")
+        await asyncio.sleep(0.5)
+
+    print("\n  Cycling animations for 10s...")
+    cycle_tools = ["Edit", "Bash", "WebSearch", "Agent", "Read", "Grep"]
+    for cycle in range(5):
+        await asyncio.sleep(2)
+        for i, sid in enumerate(rainbow_sids):
+            tool = cycle_tools[(cycle + i) % len(cycle_tools)]
+            await s({"event": "tool_use", "session_id": sid, "tool_name": tool, "project": f"cycle-{cycle}"})
+        print(f"  cycle {cycle + 1}/5")
+
+    await asyncio.sleep(2)
+    for sid in rainbow_sids:
+        await s({"event": "dismiss", "hook": "SessionEnd", "session_id": sid})
+        await asyncio.sleep(0.1)
+
+    w.close()
+    try:
+        await w.wait_closed()
+    except (BrokenPipeError, ConnectionResetError, OSError):
+        pass
+    print("\nSkin demo complete.\n")
+
+
 async def interactive(host: str, port: int, hostname: str):
     """Main interactive loop."""
     try:
@@ -316,6 +433,8 @@ async def interactive(host: str, port: int, hostname: str):
                 await run_demo(writer)
             elif cmd == "demo2":
                 await run_multi_demo(host, port)
+            elif cmd == "demo3":
+                await run_skin_demo(host, port)
             else:
                 print(f"  Unknown command: {cmd}. Type 'help' for commands.")
 
